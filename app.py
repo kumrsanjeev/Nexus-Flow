@@ -1,110 +1,129 @@
 import streamlit as st
-# CRITICAL: Page config must be the very first line
-st.set_page_config(page_title="Nexus Flow | Context Pro", page_icon="⚡", layout="wide")
-
 from agent import initialize_agent, get_chat_response
-import urllib.parse
-import re
+import re # for regex to detect image tags
+import urllib.parse # for URL encoding of prompts
 
-# Custom CSS for UI
-st.markdown("<style>.stChatMessage { border-radius: 12px; border: 1px solid #30363d; }</style>", unsafe_allow_html=True)
+# Page configuration
+st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
 
-# Session State for Messages & API Formatting
-if "messages" not in st.session_state:
-    st.session_state.messages = [] # For display
-if "api_history" not in st.session_state:
-    st.session_state.api_history = [] # For API context (roles: 'user', 'model')
+# --- CUSTOM CSS ---
+st.markdown("""
+<style>
+    .main { background-color: #0E1117; color: #FFFFFF; }
+    .stChatInputContainer { border-top: 1px solid #262730; }
+    .stChatMessage { border-radius: 12px; border: 1px solid #262730; padding: 10px; margin-bottom: 10px; }
+    .stChatMessage.user { background-color: rgba(255, 255, 255, 0.05); }
+    .stChatMessage.model { background-color: rgba(0, 150, 255, 0.05); }
+    [data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #262730; }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar for controls
+# --- SIDEBAR & MENU ---
 with st.sidebar:
-    st.title("Nexus Flow Pro 🤖")
-    st.write("Mode: Universal Intelligence")
-    st.info("Status: Online 🟢")
-    if st.button("🗑️ Clear Memory"):
-        st.session_state.messages = []
-        st.session_state.api_history = [] # Must clear API history too
-        st.rerun()
-    st.divider()
-    st.caption("Developed by Sanjeev | Context v1.0")
-
-# 1. Image Parser for Direct Gemini Display
-def parse_and_display_response(raw_text):
-    # Regex to find the [GENERATE_IMAGE: prompt] tag
-    image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', raw_text)
+    st.title("Nexus Flow 🤖")
+    st.markdown("---")
     
-    if image_match:
-        # Step A: Clean response from image tag
-        clean_ans = raw_text.replace(image_match.group(0), "").strip()
-        img_prompt = image_match.group(1).strip()
-        encoded_p = urllib.parse.quote(img_prompt)
-        # Flux high-quality image URL
-        img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&model=flux&nologo=true"
+    # 💾 Context History - Memory Management
+    # This stores the history persistently for display
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
         
-        return clean_ans, img_url, img_prompt
-    else:
-        return raw_text, None, None
+    # This stores history specifically formatted for the Gemini API
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = [] # list of (prompt, response) tuples
 
-# 2. Display Message History
+    if st.button("🗑️ Clear Context (Memory)"):
+        st.session_state.messages = []
+        st.session_state.chat_history = []
+        st.rerun()
+    
+    st.divider()
+    st.caption("Developed by Sanjeev | JEE-SAT | CapCut Expert")
+
+# Main Header
+st.title("Nexus Flow AI ⚡")
+st.write("Kaise help karu Sanjeev?")
+
+# --- Display Messages Persistent History ---
+# This loop handles re-displaying previous conversation turns (with images)
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
-        st.markdown(m["content"])
-        if "image_url" in m and m["image_url"]:
-            st.image(m["image_url"], caption=f"Generated for Sanjeev: {m['image_caption']}")
+        if m["role"] == "user":
+            st.markdown(f"👨 **Sanjeev:** {m['content']}")
+        else:
+            # Robot icon and response
+            st.markdown(f"🤖 **Nexus:**")
+            
+            # Use regex to find image generation tag in the response
+            # Format: [GENERATE_IMAGE: descriptive prompt]
+            image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', m['content'])
+            
+            if image_match:
+                # 🖼️ robust direct image display
+                img_prompt = image_match.group(1).strip()
+                # URL Encode spaces for safe link generation
+                encoded_prompt = urllib.parse.quote(img_prompt)
+                
+                # reliable direct image generation link (pollinations AI)
+                # This direct URL rendering bypasses previous blank block issues.
+                img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux&nologo=true"
+                
+                st.image(img_url, caption=f"Nexus Flow Generated: {img_prompt}")
+                # st.markdown(f"<img src='{img_url}' alt='{img_prompt}' style='max-width:100%; height:auto; border-radius:10px;'>", unsafe_allow_html=True)
+                
+                # Show cleaned text (removing the tag from display)
+                cleaned_content = m['content'].replace(image_match.group(0), "").strip()
+                if cleaned_content:
+                    st.markdown(cleaned_content)
+            else:
+                st.markdown(m['content'])
 
-# 3. Main Input Logic
+
+# --- Main Conversation Input Logic ---
 if prompt := st.chat_input("Puchiye Sanjeev..."):
-    # Add to display
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # 👨 **Display user prompt**
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(f"👨 **Sanjeev:** {prompt}")
+        
+    # Save user message to persistent history state
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
-    with st.chat_message("assistant"):
-        with st.status("Nexus Flow is thinking deeply...", expanded=False) as status:
-            try:
-                # Use context-robust initialization
-                model = initialize_agent()
-                
-                # Step B: Get response using strictly formatted api_history
-                # Context is passed HERE. It's the memory of the conversation.
-                full_res = get_chat_response(model, prompt, st.session_state.api_history)
-                
-                final_output = ""
-                img_url = None
-                img_caption = None
-                
-                # Step C: Parse Thinking Logic first
-                thinking_match = re.search(r'<thinking>(.*?)</thinking>', full_res, re.DOTALL)
-                if thinking_match:
-                    thinking_txt = thinking_match.group(1).strip()
-                    st.info(f"🧠 Reasoning: {thinking_txt}") # Reasoning inside status
-                    full_res = full_res.replace(thinking_match.group(0), "").strip()
-                
-                # Step D: Parse Image and Final Answer
-                final_output, img_url, img_caption = parse_and_display_response(full_res)
-                
-                if final_output:
-                    status.update(label="Reasoning complete!", state="complete")
-                
-                # Step E: Formatting data for saving in context
-                # Crucial for Memory: We save the *final output* to history.
-                st.session_state.api_history.append({"role": "user", "parts": [prompt]})
-                st.session_state.api_history.append({"role": "model", "parts": [final_output]})
-                
-            except Exception as e:
-                final_output = f"System Error: {e}"
-                status.update(label="Failed!", state="error")
+    # --- Nexus Bot Thinking ---
+    with st.chat_message("model"):
+        # Dropdown like thinking block
+        with st.status("Thinking like Sanjeev...", expanded=False) as status:
+            model = initialize_agent()
+            
+            # Send context history to the agent (Gemini history formatting logic is in agent.py)
+            full_res = get_chat_response(model, prompt, st.session_state.chat_history)
+            
+            status.update(label="Reasoning Done!", state="complete")
 
-        # Display Final Response
-        st.markdown(final_output)
+        st.markdown(f"🤖 **Nexus:**")
         
-        # Display Image if generated
-        if img_url:
-            st.image(img_url, caption=f"Created: {img_caption}")
+        # Regex to check for image generation in this turn
+        image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
         
-        # Save to messages history with optional image data
-        msg_data = {"role": "assistant", "content": final_output}
-        if img_url:
-            msg_data["image_url"] = img_url
-            msg_data["image_caption"] = img_caption
-        st.session_state.messages.append(msg_data)
-        
+        if image_match:
+            # Direct Image Display turn logic
+            img_prompt = image_match.group(1).strip()
+            encoded_prompt = urllib.parse.quote(img_prompt)
+            img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux&nologo=true"
+            
+            st.image(img_url, caption=f"Nexus Flow Generated: {img_prompt}")
+            
+            cleaned_full_res = full_res.replace(image_match.group(0), "").strip()
+            if cleaned_full_res:
+                st.markdown(cleaned_full_res)
+        else:
+            # Normal text response
+            st.markdown(full_res)
+
+    # --- Save full context turn (memory) ---
+    # User part of context
+    # API context (strictly user/model parts format)
+    st.session_state.chat_history.append((prompt, full_res))
+    
+    # Message persistent history part
+    st.session_state.messages.append({"role": "model", "content": full_res})
+    
