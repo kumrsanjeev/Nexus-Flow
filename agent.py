@@ -8,28 +8,24 @@ def initialize_agent():
         
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # System Instruction for Thinking + Images
+    # ChatGPT-style Advanced Instruction
     instruction = """
-    You are Nexus Flow AI. 
-    1. IMAGE: For image requests, respond ONLY with: [GENERATE_IMAGE: descriptive prompt in English]
-    2. THINKING: For others, use <thinking> step-by-step logic </thinking> then final answer.
+    You are Nexus Flow AI Pro, a highly intelligent assistant for Sanjeev.
+    - PERSONALITY: Expert, witty, and extremely logical like GPT-4.
+    - REASONING: For every complex question, ALWAYS think step-by-step inside <thinking> tags.
+    - IMAGES: If Sanjeev asks to draw/generate/show an image, respond ONLY with: [GENERATE_IMAGE: highly detailed English prompt]
+    - KNOWLEDGE: You know about Sanjeev's interest in Video Editing (Punch Edit), SAT/JEE, and Anime.
+    - HINGLISH: Use a natural mix of Hindi and English.
     """
     
     try:
-        # Automatically find the best working model for your API key
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        selected = "models/gemini-1.5-flash" # Default target
-        if selected not in available_models:
-            selected = "models/gemini-pro"
-        if selected not in available_models and available_models:
-            selected = available_models[0]
-
-        return genai.GenerativeModel(model_name=selected, system_instruction=instruction)
+        # Forcing Gemini 1.5 Flash for better reasoning + speed
+        return genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
     except:
         return genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
 
 def get_chat_response(model, user_input, history):
+    if not model: return "Model error."
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
