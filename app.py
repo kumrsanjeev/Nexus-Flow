@@ -14,9 +14,8 @@ st.markdown("""
     <style>
     .main { background-color: #0E1117; }
     .stChatMessage { border-radius: 15px; border: 1px solid #161B22; }
-    .st-emotion-cache-1ghv0sh { color: #00FFA3; } /* Primary color tweak */
     </style>
-    """, unsafe_check_html=True)
+    """, unsafe_allow_html=True) # ✅ Corrected
 
 # 3. Sidebar - Branding & Controls
 with st.sidebar:
