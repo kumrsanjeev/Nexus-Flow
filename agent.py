@@ -5,24 +5,20 @@ def initialize_agent():
     if "GOOGLE_API_KEY" not in st.secrets:
         return None
     
-    # Simple configuration - let the library handle the endpoint
+    # Configure with NO version strings
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Hard-coded stable names
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        return model
-    except:
-        return genai.GenerativeModel("gemini-pro")
+    # Try multiple variants - library will pick the right one
+    for model_name in ["gemini-1.5-flash", "gemini-pro"]:
+        try:
+            return genai.GenerativeModel(model_name)
+        except:
+            continue
+    return None
 
 def get_chat_response(model, user_input, history):
-    if not model: return "Agent not initialized."
-    try:
-        chat = model.start_chat(history=history)
-        response = chat.send_message(user_input)
-        return response.text
-    except Exception as e:
-        if "429" in str(e):
-            return "⚠️ Quota Full: Please wait 60 seconds."
-        return f"Error: {str(e)}"
-        
+    if not model: return "System Error."
+    chat = model.start_chat(history=history)
+    response = chat.send_message(user_input)
+    return response.text
+    
