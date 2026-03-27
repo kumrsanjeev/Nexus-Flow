@@ -1,70 +1,75 @@
 import streamlit as st
-# Must be line 1
+# Critical: Page config must be first
 st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
 
 from agent import initialize_agent, get_chat_response
 import urllib.parse
 
-# UI Styling
-st.markdown("<style>.stChatMessage { border-radius: 12px; border: 1px solid #30363d; }</style>", unsafe_allow_html=True)
+# Custom Sidebar
+with st.sidebar:
+    st.title("Nexus Flow Pro 🤖")
+    st.info("Status: Active 🟢")
+    if st.button("🗑️ Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
+    st.divider()
+    st.caption("Owner: Sanjeev")
 
+# Initialize Session State
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar
-with st.sidebar:
-    st.title("Nexus Flow Pro 🤖")
-    if st.button("🗑️ Clear Memory"):
-        st.session_state.messages = []
-        st.rerun()
-
-# Display Chat
+# Display Messages
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-# Logic
-if prompt := st.chat_input("Puchiye Sanjeev..."):
+# User Input
+if prompt := st.chat_input("Kaise help karu Sanjeev?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
+        # ChatGPT-style "Thinking" Status
         with st.status("Nexus Flow is thinking...", expanded=False) as status:
             try:
                 model = initialize_agent()
-                # Correcting history for Gemini
+                # Properly format history for Gemini API
                 history = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
                 
                 full_res = get_chat_response(model, prompt, history)
-                final_ans = ""
+                final_output = ""
 
-                # --- 1. IMAGE DISPLAY ---
+                # --- CASE 1: DIRECT IMAGE GENERATION ---
                 if "[GENERATE_IMAGE:" in full_res:
-                    img_p = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                    encoded_p = urllib.parse.quote(img_p)
+                    img_prompt = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
+                    encoded_p = urllib.parse.quote(img_prompt)
+                    # High quality Flux model URL
                     img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&model=flux&nologo=true"
                     
-                    status.update(label="🎨 Image Created!", state="complete")
-                    st.image(img_url, caption=f"Nexus Flow AI: {img_p}")
-                    final_ans = f"Aapki image taiyar hai: **{img_p}**"
+                    status.update(label="🎨 Image Generated!", state="complete")
+                    # Direct Display like Gemini
+                    st.image(img_url, caption=f"Nexus Flow Created: {img_prompt}", use_container_width=True)
+                    final_output = f"Maine aapke liye **{img_prompt}** generate kar di hai."
 
-                # --- 2. THINKING DISPLAY ---
+                # --- CASE 2: DEEP THINKING (ChatGPT style) ---
                 elif "<thinking>" in full_res:
                     parts = full_res.split("</thinking>")
-                    thinking_logic = parts[0].replace("<thinking>", "").strip()
-                    st.write(thinking_logic) # Dropdown mein logic dikhega
-                    final_ans = parts[1].strip()
-                    status.update(label="Reasoning Complete", state="complete")
+                    thinking_txt = parts[0].replace("<thinking>", "").strip()
+                    st.write(thinking_txt) # Shows AI logic inside the dropdown
+                    final_output = parts[1].strip()
+                    status.update(label="Thinking complete!", state="complete")
                 
                 else:
-                    final_ans = full_res
-                    status.update(label="Response Ready", state="complete")
+                    final_output = full_res
+                    status.update(label="Done!", state="complete")
 
             except Exception as e:
-                final_ans = f"System Error: {e}"
-                status.update(label="Error!", state="error")
+                final_output = f"System Error: {e}. Check API Key."
+                status.update(label="Failed!", state="error")
 
-        st.markdown(final_ans)
-        st.session_state.messages.append({"role": "assistant", "content": final_ans})
+        # Final Chat Response (outside status box)
+        st.markdown(final_output)
+        st.session_state.messages.append({"role": "assistant", "content": final_output})
         
