@@ -44,3 +44,4 @@ def get_chat_response(model, user_input, history):
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
+    
