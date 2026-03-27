@@ -2,35 +2,44 @@ import google.generativeai as genai
 import streamlit as st
 
 def initialize_agent():
+    # API Key check
     if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("API Key missing!")
+        st.error("API Key missing! Add it to Streamlit Secrets.")
         return None
-    
+        
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # --- DYNAMIC MODEL DETECTION ---
+    # Dynamic Model Selection to avoid 404
     try:
-        # Aapke account mein available models ki list check karna
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        # Priority wise model select karna
-        if 'models/gemini-1.5-flash' in models:
-            selected_model = 'models/gemini-1.5-flash'
-        elif 'models/gemini-pro' in models:
-            selected_model = 'models/gemini-pro'
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        if 'models/gemini-1.5-flash' in available_models:
+            model_id = 'models/gemini-1.5-flash'
         else:
-            selected_model = models[0] # Jo bhi pehla mile
-            
-    except Exception:
-        selected_model = "gemini-pro" # Safe fallback
+            model_id = 'models/gemini-pro'
+    except:
+        model_id = 'gemini-1.5-flash'
 
-    "Example: [GENERATE_IMAGE: A high-tech dragon in 4k neon style]"
-# AI ko bolo prompt plain text mein rakhe, koi symbols na use kare.
+    # Advanced System Instruction
+    instruction = """
+    You are Nexus Flow AI, an advanced reasoning agent for Sanjeev.
     
+    1. IMAGE GENERATION: If user asks for an image/picture, respond ONLY with: 
+       [GENERATE_IMAGE: descriptive prompt in English]
     
-    return genai.GenerativeModel(model_name=selected_model, system_instruction=instruction)
+    2. REASONING: For other queries, you MUST think step-by-step.
+       Format:
+       <thinking>
+       (Internal logic and planning)
+       </thinking>
+       (Your final helpful response)
+    
+    Be concise and professional.
+    """
+    
+    return genai.GenerativeModel(model_name=model_id, system_instruction=instruction)
 
 def get_chat_response(model, user_input, history):
+    if model is None: return "Model not initialized."
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
