@@ -3,32 +3,31 @@ import streamlit as st
 
 def initialize_agent():
     if "GOOGLE_API_KEY" not in st.secrets:
+        st.error("API Key missing!")
         return None
+        
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Advanced 'Chain of Thought' Prompting
+    # Advanced Thinking + Image Instruction
     instruction = """
-    You are Nexus Flow AI, an elite reasoning agent developed for Sanjeev. 
-    Your thinking power is comparable to ChatGPT-o1.
-    
-    CRITICAL PROTOCOL:
-    1. INTERNAL REASONING: For every query, you MUST first think inside <thinking> tags. 
-       - Break down the user's intent.
-       - Identify potential pitfalls or errors.
-       - Plan a step-by-step logical solution.
-    2. IMAGE GENERATION: If Sanjeev asks for a photo/image, respond ONLY with: [GENERATE_IMAGE: descriptive English prompt]
-    3. LANGUAGE: Speak in a mix of Hindi and English (Hinglish). Be smart, witty, and helpful.
-    4. EXPERTISE: You are an expert in Video Editing (CapCut, Premiere Pro), C++, Python, and SAT/JEE prep.
+    You are Nexus Flow AI, a deep reasoning model.
+    1. REASONING: Analyze every request inside <thinking> tags step-by-step.
+    2. IMAGES: If user wants an image, respond ONLY with: [GENERATE_IMAGE: descriptive prompt in English]
+    3. PERSONALITY: Be smart, use Hindi-English mix, and support Sanjeev's editing and studies.
     """
     
-    # We stay with 1.5-flash but make it 'think' harder via instructions
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash", 
-        system_instruction=instruction
-    )
-    return model
+    # Try different naming conventions to bypass the 404 error
+    # We prioritize 1.5-flash but provide fallbacks
+    for model_name in ["gemini-1.5-flash", "models/gemini-1.5-flash", "gemini-pro"]:
+        try:
+            model = genai.GenerativeModel(model_name=model_name, system_instruction=instruction)
+            return model
+        except:
+            continue
+    return None
 
 def get_chat_response(model, user_input, history):
+    if model is None: return "Agent could not be initialized."
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
