@@ -3,30 +3,29 @@ import streamlit as st
 
 def initialize_agent():
     if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("API Key missing! Add it to Streamlit Secrets.")
+        st.error("API Key missing! Check Streamlit Secrets.")
         return None
         
+    # FIX: No version string, uses the latest stable v1 automatically
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # ChatGPT-style Advanced Instruction
     instruction = """
-    You are Nexus Flow AI Pro, a highly intelligent assistant for Sanjeev.
-    - PERSONALITY: Expert, witty, and extremely logical like GPT-4.
-    - REASONING: For every complex question, ALWAYS think step-by-step inside <thinking> tags.
-    - IMAGES: If Sanjeev asks to draw/generate/show an image, respond ONLY with: [GENERATE_IMAGE: highly detailed English prompt]
-    - KNOWLEDGE: You know about Sanjeev's interest in Video Editing (Punch Edit), SAT/JEE, and Anime.
-    - HINGLISH: Use a natural mix of Hindi and English.
+    You are Nexus Flow AI Pro. 
+    1. REASONING: Always think deeply and logically like ChatGPT inside <thinking> tags.
+    2. IMAGES: For image requests, respond ONLY with: [GENERATE_IMAGE: descriptive prompt]
+    3. PERSONALITY: You are Sanjeev's expert partner in Video Editing, Coding, and SAT.
     """
     
     try:
-        # Forcing Gemini 1.5 Flash for better reasoning + speed
-        return genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
+        # Priority: Flash for speed, Pro for backup
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
+        return model
     except:
         return genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
 
 def get_chat_response(model, user_input, history):
-    if not model: return "Model error."
+    if not model: return "Agent Error."
+    # FIX: history naming to avoid TypeError
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
-    
