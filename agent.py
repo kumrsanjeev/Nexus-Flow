@@ -3,21 +3,22 @@ import streamlit as st
 
 def initialize_agent():
     if "GOOGLE_API_KEY" not in st.secrets:
+        st.error("Secrets mein API Key nahi mili!")
         return None
     
-    # Configure with NO version strings
+    # FIX: Sirf API Key configure karein, koi version string nahi
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Try multiple variants - library will pick the right one
-    for model_name in ["gemini-1.5-flash", "gemini-pro"]:
-        try:
-            return genai.GenerativeModel(model_name)
-        except:
-            continue
-    return None
+    try:
+        # Direct model name use karein bina kisi prefix ke
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        return model
+    except Exception as e:
+        # Fallback agar flash kaam na kare
+        return genai.GenerativeModel("gemini-pro")
 
 def get_chat_response(model, user_input, history):
-    if not model: return "System Error."
+    if not model: return "Model initialize nahi hua."
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
