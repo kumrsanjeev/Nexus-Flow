@@ -2,64 +2,42 @@ import google.generativeai as genai
 import streamlit as st
 
 def initialize_agent():
-    # Retrieve API key from Streamlit secrets
     if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("GOOGLE_API_KEY is missing from Streamlit secrets.")
+        st.error("API Key missing! Check Streamlit Secrets.")
         return None
         
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # --- Advanced System Instruction for Image Generation & Context ---
     instruction = """
-    You are 'Nexus Flow AI', developed by Sanjeev. You are a professional assistant specialized in:
-    1. Video Editing (Ghost Edit, Punch Edit, CapCut, Premiere Pro)
-    2. Coding (C++, Python)
-    3. Exam Preparation (JEE, SAT)
-
-    KEY CAPABILITIES & RULES:
-    1. IDENTITY: Always introduce yourself as Nexus Flow AI when asked about identity. Say Sanjeev is your owner.
-    2. IMAGE GENERATION: When the user asks to generate an image or see something (e.g., 'Dragon dikhao', 'Generate an image of a car'), you MUST respond using this exact format ONLY, at the start of your message: [GENERATE_IMAGE: highly descriptive image prompt in English] followed by any relevant Hinglish response. Do not generate code or text answers for image requests. Keep the prompt descriptive for better results.
-    3. LANGUAGE: Prefer Hinglish (Hindi + English) like a local Indian assistant. Be polite and professional.
-    4. CONTEXT: Remember that Sanjeev is a student and editor. Tailor your examples to these fields.
+    You are Nexus Flow AI, Sanjeev's personal partner.
+    1. MEMORY: Always remember previous context. You are smart like Gemini/ChatGPT.
+    2. IMAGE: Respond ONLY with [GENERATE_IMAGE: descriptive prompt] for image requests.
+    3. STYLE: Use natural Hinglish. Expert in Video Editing & Coding.
     """
     
-    # Fallback to gemini-pro if flash 1.5 is unavailable (fixes some region issues)
+    # --- FIX FOR 404 ERROR ---
     try:
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
-        return model
-    except Exception:
-        # If gemini-1.5-flash is not available for this key/region
-        st.warning("gemini-1.5-flash not available. Falling back to gemini-pro.")
-        model = genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
-        return model
-
-def get_chat_response(model, user_input, history):
-    if model is None:
-        return "System Error: Model not initialized. Check API Key."
+        # Check for available models to avoid 404
+        available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-    try:
-        # strictly Gemini requires history in 'user' and 'model' parts format
-        # This formatting fix resolves the chat history issue.
-        formatted_history = []
-        for turn in history:
-            # turn should be a tuple (prompt, response) from st.session_state.chat_history
-            if len(turn) == 2:
-                formatted_history.append({"role": "user", "parts": [turn[0]]})
-                formatted_history.append({"role": "model", "parts": [turn[1]]})
-
-        # Start a persistent chat instance with formatted history
-        chat = model.start_chat(history=formatted_history)
+        # Priority logic
+        selected = None
+        for target in ["models/gemini-1.5-flash", "models/gemini-pro", "gemini-1.5-flash"]:
+            if target in available:
+                selected = target
+                break
         
-        # Send the message and get response
-        response = chat.send_message(user_input)
-        
-        # Safe response accessing (prevents blank part error)
-        if response.candidates and len(response.candidates[0].content.parts) > 0:
-            return response.text
-        else:
-            return "Maaf kijiye, main ye topic safety policies ke wajah se respond nahi kar sakta. Kuch aur puchiye?"
+        if not selected and available:
+            selected = available[0]
             
-    except Exception as e:
-        return f"Oops, error aa gaya: {str(e)}"
-        
+        return genai.GenerativeModel(model_name=selected, system_instruction=instruction)
+    except:
+        return genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
+
+def get_chat_response(model, user_input, chat_history):
+    # GEMINI MEMORY FORMATTING
+    # chat_history: list of {'role': 'user/model', 'parts': [text]}
+    chat = model.start_chat(history=chat_history)
+    response = chat.send_message(user_input)
+    return response.text
+    
