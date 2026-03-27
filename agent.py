@@ -3,42 +3,45 @@ import streamlit as st
 
 def initialize_agent():
     if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("API Key missing! Check Streamlit Secrets.")
+        st.error("API Key missing!")
         return None
         
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
     instruction = """
-    You are Nexus Flow AI. 
-    1. Always think step-by-step inside <thinking> tags.
+    You are Nexus Flow AI, Sanjeev's partner. 
+    1. Think deeply inside <thinking> tags.
     2. For images, use ONLY: [GENERATE_IMAGE: descriptive prompt]
-    3. You are Sanjeev's partner. Be smart and Hinglish.
+    3. Use Hinglish naturally.
     """
     
-    # --- The "No-Fail" Model List ---
-    model_options = [
-        "gemini-1.5-flash", 
-        "models/gemini-1.5-flash", 
-        "gemini-pro", 
-        "models/gemini-pro"
-    ]
-    
-    for m_name in model_options:
-        try:
-            model = genai.GenerativeModel(model_name=m_name, system_instruction=instruction)
-            # Chota sa test call check karne ke liye ki model active hai ya nahi
-            return model
-        except Exception:
-            continue
+    try:
+        # Step 1: Scan for all available models
+        # Ye line 404 error ko hamesha ke liye khatam kar degi
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # Step 2: Pick the best one available in YOUR account
+        selected = None
+        for target in ["models/gemini-1.5-flash", "models/gemini-pro", "models/gemini-1.5-pro"]:
+            if target in available_models:
+                selected = target
+                break
+        
+        if not selected and available_models:
+            selected = available_models[0]
             
-    return None
+        if not selected:
+            return None
+
+        return genai.GenerativeModel(model_name=selected, system_instruction=instruction)
+    except Exception as e:
+        # Final desperate fallback to standard name
+        return genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
 
 def get_chat_response(model, user_input, history):
     if model is None: return "Error: Model initialization failed."
-    try:
-        chat = model.start_chat(history=history)
-        response = chat.send_message(user_input)
-        return response.text
-    except Exception as e:
-        return f"API Error: {str(e)}"
-        
+    # Direct chat session with history
+    chat = model.start_chat(history=history)
+    response = chat.send_message(user_input)
+    return response.text
+    
