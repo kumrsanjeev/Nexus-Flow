@@ -1,86 +1,44 @@
-# app.py
 import streamlit as st
-import google.generativeai as genai
+# Must be the first line
+st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
 
-# ----------------- PAGE CONFIG -----------------
-st.set_page_config(page_title="Nexus Flow Pro")
+from agent import initialize_agent, get_chat_response
 
-# ----------------- SESSION STATE -----------------
+# Memory Setup
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "chat_memory" not in st.session_state:
+    st.session_state.chat_memory = []
 
-if "memory" not in st.session_state:
-    st.session_state.memory = []
+with st.sidebar:
+    st.title("Nexus Flow Pro 🤖")
+    if st.button("➕ New Chat"):
+        st.session_state.messages = []
+        st.session_state.chat_memory = []
+        st.rerun()
+    st.caption("Owner: Sanjeev")
 
-# ----------------- MODEL INITIALIZATION -----------------
-def initialize_agent():
-    if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("Google API key st.secrets me nahi hai!")
-        return None
+# Display Messages
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
 
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    
-    try:
-        available_models = [m.name for m in genai.list_models()]
-    except Exception as e:
-        st.error(f"Error listing models: {e}")
-        return None
-    
-    preferred_model = "gemini-1.5"
-    if preferred_model in available_models:
-        model_name = preferred_model
-    elif available_models:
-        model_name = available_models[0]
-    else:
-        st.error("Koi model available nahi hai! Check account access.")
-        return None
-    
-    return genai.GenerativeModel(model_name)
-
-# ----------------- CHAT FUNCTION -----------------
-def get_chat_response(model, user_input, history):
-    if not model:
-        return "Model Error"
-    
-    # Convert history to API compatible format
-    api_history = []
-    for msg in history:
-        if "author" in msg and "content" in msg:
-            api_history.append({"author": msg["author"], "content": msg["content"]})
-    
-    chat = model.start_chat(messages=api_history)
-    response = chat.send_message(user_input)
-    return response.text
-
-# ----------------- STREAMLIT UI -----------------
-st.title("Nexus Flow Pro Chatbot")
-
-# Display previous messages
-for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        with st.chat_message("user"):
-            st.write(msg["content"])
-    else:
-        with st.chat_message("assistant"):
-            st.write(msg["content"])
-
-# Chat input
+# User Input
 if prompt := st.chat_input("Puchiye Sanjeev..."):
-    # Save user message
     st.session_state.messages.append({"role": "user", "content": prompt})
-    st.session_state.memory.append({"author": "user", "content": prompt})
-
     with st.chat_message("user"):
-        st.write(prompt)
-    
+        st.markdown(prompt)
+
     with st.chat_message("assistant"):
-        model = initialize_agent()
-        if model:
-            res = get_chat_response(model, prompt, st.session_state.memory)
-            st.write(res)
-            
-            # Save assistant message
-            st.session_state.messages.append({"role": "assistant", "content": res})
-            st.session_state.memory.append({"author": "assistant", "content": res})
-        else:
-            st.error("Model initialization failed! Check API key and access.")
+        with st.status("Nexus Flow is thinking...", expanded=False):
+            model = initialize_agent()
+            # Calling the fix with chat_memory
+            res = get_chat_response(model, prompt, st.session_state.chat_memory)
+        
+        st.markdown(res)
+        
+        # Update UI & API Memory
+        st.session_state.messages.append({"role": "assistant", "content": res})
+        st.session_state.chat_memory.append({"role": "user", "parts": [prompt]})
+        st.session_state.chat_memory.append({"role": "model", "parts": [res]})
+        
