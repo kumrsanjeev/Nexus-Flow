@@ -60,17 +60,25 @@ if prompt := st.chat_input("Kaise help karu Sanjeev?"):
                 full_res = get_chat_response(model, prompt, formatted_history)
                 final_display_text = ""
 
-                # --- CASE A: IMAGE GENERATION ---
-                if "[GENERATE_IMAGE:" in full_res:
-                    img_prompt = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                    status.update(label="Generating Image... 🎨", state="running")
-                    
-                    # Using Pollinations AI for high-quality fast generation
-                    image_url = f"https://pollinations.ai/p/{img_prompt.replace(' ', '%20')}?width=1024&height=1024&model=flux"
-                    
-                    st.image(image_url, caption=f"Nexus Flow Generated: {img_prompt}")
-                    final_display_text = f"✅ Image ready for: **{img_prompt}**"
-                    status.update(label="Image Generated!", state="complete")
+                # --- IMAGE GENERATION LOGIC ---
+if "[GENERATE_IMAGE:" in full_res:
+    img_prompt = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
+    status.update(label="Generating Image... 🎨", state="running")
+    
+    # URL ko encode karna zaroori hai (Spaces ko %20 se replace karein)
+    encoded_prompt = img_prompt.replace(" ", "%20")
+    
+    # Direct reliable URL with flux model
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux&nologo=true"
+    
+    # Displaying the image properly
+    st.image(image_url, caption=f"Nexus Flow Generated: {img_prompt}", use_container_width=True)
+    
+    # Optional: Download button add karna
+    st.markdown(f"[📥 Download Image]({image_url})")
+    
+    final_display_text = f"✅ Image ready for: **{img_prompt}**"
+    status.update(label="Image Generated!", state="complete")
 
                 # --- CASE B: THINKING LOGIC ---
                 elif "<thinking>" in full_res:
