@@ -1,79 +1,77 @@
 import streamlit as st
-# Must be the first line
-st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
+# CRITICAL: Page config must be first
+st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
 
 from agent import initialize_agent, get_chat_response
 import urllib.parse
+import re
 
-# 1. Custom Styling
-st.markdown("""
-    <style>
-    .stChatMessage { border-radius: 15px; border: 1px solid #262730; }
-    .stStatusWidget { border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 2. Session State
+# Persistent Chat State
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "chat_memory" not in st.session_state:
+    st.session_state.chat_memory = []
 
-# 3. Sidebar
 with st.sidebar:
-    st.title("Nexus Flow 🤖")
-    if st.button("🗑️ Clear Chat"):
+    st.title("Nexus Flow Pro 🤖")
+    if st.button("➕ New Chat"):
         st.session_state.messages = []
+        st.session_state.chat_memory = []
         st.rerun()
     st.divider()
     st.caption("Owner: Sanjeev")
 
-# 4. Display History
+# Display Messages (Crash-Proof Loop)
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
+        # Using .get() prevents "AttributeError" if image is missing
+        if m.get("image"):
+            st.image(m["image"])
 
-# 5. User Input
-if prompt := st.chat_input("Kaise help karu Sanjeev?"):
+# Input Logic
+if prompt := st.chat_input("Puchiye Sanjeev..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.status("Nexus Flow is processing...", expanded=False) as status:
+        final_ans = ""
+        img_url = None
+        
+        with st.status("Nexus Flow is thinking...", expanded=False) as status:
             try:
                 model = initialize_agent()
-                history = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
-                
-                full_res = get_chat_response(model, prompt, history)
-                final_ans = ""
-
-                # CASE 1: IMAGE GENERATION
-                if "[GENERATE_IMAGE:" in full_res:
-                    raw_p = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                    # Safe URL encoding for spaces
-                    clean_p = urllib.parse.quote(raw_p)
-                    img_url = f"https://image.pollinations.ai/prompt/{clean_p}?width=1024&height=1024&model=flux&nologo=true"
+                if model:
+                    full_res = get_chat_response(model, prompt, st.session_state.chat_memory)
                     
-                    status.update(label="🎨 Image Created!", state="complete")
-                    st.image(img_url, caption=f"Nexus Flow Generated: {raw_p}")
-                    final_ans = f"✅ Image ready: **{raw_p}**. [Direct Link]({img_url})"
+                    # Parsing Reasoning and Images
+                    if "<thinking>" in full_res:
+                        full_res = full_res.split("</thinking>")[-1].strip()
 
-                # CASE 2: THINKING / EDIT MODE
-                elif "<thinking>" in full_res:
-                    parts = full_res.split("</thinking>")
-                    thinking_process = parts[0].replace("<thinking>", "").strip()
-                    st.info(f"🧠 Reasoning: {thinking_process}")
-                    final_ans = parts[1].strip()
-                    status.update(label="Thinking Complete!", state="complete")
-                
-                # CASE 3: NORMAL TEXT
-                else:
-                    final_ans = full_res
+                    if "[GENERATE_IMAGE:" in full_res:
+                        match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
+                        if match:
+                            img_p = match.group(1).strip()
+                            img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_p)}?width=1024&height=1024&model=flux"
+                            final_ans = f"✅ Image ready: **{img_p}**"
+                    
+                    if not final_ans: final_ans = full_res
                     status.update(label="Done!", state="complete")
+                else:
+                    final_ans = "System Initialization Failed. Check Secrets."
+                    status.update(label="Error!", state="error")
 
             except Exception as e:
-                final_ans = f"Error: {e}"
-                status.update(label="System Error!", state="error")
+                final_ans = f"API Error: {e}"
+                status.update(label="Failed!", state="error")
 
+        # UI Rendering
         st.markdown(final_ans)
-        st.session_state.messages.append({"role": "assistant", "content": final_ans})
+        if img_url: st.image(img_url)
+
+        # Save to Memory
+        st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": img_url})
+        st.session_state.chat_memory.append({"role": "user", "parts": [prompt]})
+        st.session_state.chat_memory.append({"role": "model", "parts": [final_ans]})
         
