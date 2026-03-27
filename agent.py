@@ -24,11 +24,9 @@ def initialize_agent():
     except Exception:
         selected_model = "gemini-pro" # Safe fallback
 
-    instruction = """
-    You are Nexus Flow AI. 
-    1. For image requests, reply ONLY with: [GENERATE_IMAGE: prompt]
-    2. For others, use <thinking> step-by-step logic </thinking> then final answer.
-    """
+    "Example: [GENERATE_IMAGE: A high-tech dragon in 4k neon style]"
+# AI ko bolo prompt plain text mein rakhe, koi symbols na use kare.
+    
     
     return genai.GenerativeModel(model_name=selected_model, system_instruction=instruction)
 
