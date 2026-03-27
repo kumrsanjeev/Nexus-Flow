@@ -1,43 +1,34 @@
 import streamlit as st
+# CRITICAL: Page config must be line 1
+st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
+
 from agent import initialize_agent, get_chat_response
 import urllib.parse
 import re
 
-# Page Setup
-st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
-
-# Persistent History like Gemini
+# Persistent memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "chat_memory" not in st.session_state:
     st.session_state.chat_memory = []
 
-# --- SIDEBAR ---
+# Sidebar
 with st.sidebar:
     st.title("Nexus Flow Pro 🤖")
-    if st.button("➕ New Chat", use_container_width=True):
+    if st.button("➕ New Chat"):
         st.session_state.messages = []
         st.session_state.chat_memory = []
         st.rerun()
-    
     st.divider()
-    if st.button("🗑️ Clear History"):
-        st.session_state.messages = []
-        st.session_state.chat_memory = []
-        st.rerun()
-    st.caption(f"Owner: Sanjeev")
+    st.caption("Owner: Sanjeev")
 
-# --- MAIN UI ---
-st.title("Nexus Flow AI ⚡")
-
-# Display History
+# Display
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
-        if "image" in m:
-            st.image(m["image"])
+        if "image" in m: st.image(m["image"])
 
-# User Input
+# Input
 if prompt := st.chat_input("Kaise help karu Sanjeev?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -50,35 +41,33 @@ if prompt := st.chat_input("Kaise help karu Sanjeev?"):
                 if model:
                     full_res = get_chat_response(model, prompt, st.session_state.chat_memory)
                     
-                    # Logic for Image & Thinking
-                    current_img = None
+                    # Image parsing
+                    img_url = None
                     if "[GENERATE_IMAGE:" in full_res:
-                        img_p = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                        encoded = urllib.parse.quote(img_p)
-                        current_img = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&model=flux&nologo=true"
-                        full_res = f"✅ Image ready for: **{img_p}**"
+                        p_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
+                        if p_match:
+                            clean_p = urllib.parse.quote(p_match.group(1))
+                            img_url = f"https://image.pollinations.ai/prompt/{clean_p}?width=1024&height=1024&model=flux&nologo=true"
+                            full_res = f"✅ Image ready for: **{p_match.group(1)}**"
                     
-                    status.update(label="Response Ready!", state="complete")
-                    
-                    # Display Result
+                    # Thinking parsing
+                    if "<thinking>" in full_res:
+                        full_res = full_res.split("</thinking>")[-1].strip()
+
+                    status.update(label="Done!", state="complete")
                     st.markdown(full_res)
-                    if current_img:
-                        st.image(current_img)
+                    if img_url: st.image(img_url)
                     
-                    # Update Memory
+                    # Save history
                     msg_store = {"role": "assistant", "content": full_res}
-                    if current_img: msg_store["image"] = current_img
+                    if img_url: msg_store["image"] = img_url
                     st.session_state.messages.append(msg_store)
-                    
                     st.session_state.chat_memory.append({"role": "user", "parts": [prompt]})
                     st.session_state.chat_memory.append({"role": "model", "parts": [full_res]})
                 else:
-                    st.error("Model could not be loaded. Check API Key/Quota.")
-
+                    status.update(label="Initialization Failed!", state="error")
+                    st.error("Sanjeev, saare models fail ho gaye. Ek baar API Key check karo.")
             except Exception as e:
-                status.update(label="Failed!", state="error")
-                if "429" in str(e):
-                    st.warning("Quota Full! Please wait 60 seconds.")
-                else:
-                    st.error(f"Error: {e}")
-                    
+                status.update(label="Error!", state="error")
+                st.error(f"System Error: {e}")
+                
