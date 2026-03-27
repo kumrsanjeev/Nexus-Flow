@@ -1,5 +1,5 @@
 import streamlit as st
-# Line 1: Page config
+# CRITICAL: Page config must be first line
 st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
 
 from agent import initialize_agent, get_chat_response
@@ -21,12 +21,13 @@ with st.sidebar:
     st.divider()
     st.caption("Owner: Sanjeev")
 
-# Display Messages
+# Display Persistent History
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
         if m.get("image"): st.image(m["image"])
 
+# Input Logic
 if prompt := st.chat_input("Puchiye Sanjeev..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -42,10 +43,13 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
                 if model:
                     full_res = get_chat_response(model, prompt, st.session_state.api_history)
                     
-                    # Logic: Thinking & Image Parsing
+                    # 1. Parse Reasoning
                     if "<thinking>" in full_res:
-                        full_res = full_res.split("</thinking>")[-1].strip()
+                        parts = full_res.split("</thinking>")
+                        st.info(f"🧠 Logic: {parts[0].replace('<thinking>', '').strip()}")
+                        full_res = parts[1].strip() if len(parts) > 1 else full_res
 
+                    # 2. Parse Image
                     if "[GENERATE_IMAGE:" in full_res:
                         match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
                         if match:
@@ -59,13 +63,13 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
                     st.markdown(final_ans)
                     if img_url: st.image(img_url)
                     
-                    # Update History
+                    # 3. Save to History
                     st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": img_url})
                     st.session_state.api_history.append({"role": "user", "parts": [prompt]})
                     st.session_state.api_history.append({"role": "model", "parts": [final_ans]})
                 else:
-                    status.update(label="API Error!", state="error")
-                    st.error("No model available. Please check your API Key in Secrets.")
+                    status.update(label="System Error!", state="error")
+                    st.error("Model scanner fail ho gaya. Ek baar naya API Key try karein.")
             except Exception as e:
                 status.update(label="Failed!", state="error")
                 st.error(f"Error: {e}")
