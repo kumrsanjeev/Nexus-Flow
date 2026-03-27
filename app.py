@@ -1,36 +1,32 @@
 import streamlit as st
+# Critical: Page config must be first
+st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
+
 from agent import initialize_agent, get_chat_response
 import urllib.parse
-import re
 
-# Page Setup
-st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
-
-# Session State for Gemini-like History
-if "messages" not in st.session_state:
-    st.session_state.messages = [] # Display history
-if "chat_memory" not in st.session_state:
-    st.session_state.chat_memory = [] # AI context memory
-
-# --- SIDEBAR (New Chat & Controls) ---
+# Custom Sidebar
 with st.sidebar:
     st.title("Nexus Flow Pro 🤖")
-    if st.button("➕ New Chat", use_container_width=True):
+    st.info("Status: Active 🟢")
+    if st.button("➕ New Chat"):
         st.session_state.messages = []
         st.session_state.chat_memory = []
         st.rerun()
-    
     st.divider()
-    if st.button("🗑️ Clear All History"):
+    if st.button("🗑️ Clear Chat History"):
         st.session_state.messages = []
         st.session_state.chat_memory = []
         st.rerun()
-    st.caption(f"Owner: Sanjeev")
+    st.caption("Owner: Sanjeev")
 
-# --- MAIN CHAT INTERFACE ---
-st.title("Nexus Flow AI ⚡")
+# Initialize Session State
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "chat_memory" not in st.session_state:
+    st.session_state.chat_memory = []
 
-# Display persistent history
+# Display Messages
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
@@ -39,49 +35,63 @@ for m in st.session_state.messages:
 
 # User Input
 if prompt := st.chat_input("Kaise help karu Sanjeev?"):
-    # Add User Message to UI
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Nexus Response Logic
     with st.chat_message("assistant"):
+        # ChatGPT-style "Thinking" Status
         with st.status("Nexus Flow is thinking...", expanded=False) as status:
             try:
                 model = initialize_agent()
+                # Properly format history for Gemini API
                 full_res = get_chat_response(model, prompt, st.session_state.chat_memory)
-                
-                # Image Logic
-                current_img_url = None
+                final_output = ""
+
+                # --- CASE 1: DIRECT IMAGE GENERATION ---
                 if "[GENERATE_IMAGE:" in full_res:
                     img_prompt = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                    encoded = urllib.parse.quote(img_prompt)
-                    current_img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&model=flux&nologo=true"
-                    full_res = f"✅ Image ready for: **{img_prompt}**"
+                    encoded_p = urllib.parse.quote(img_prompt)
+                    # High quality Flux model URL
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&model=flux&nologo=true"
+                    
+                    status.update(label="🎨 Image Generated!", state="complete")
+                    # Direct Display like Gemini
+                    st.image(img_url, caption=f"Nexus Flow Created: {img_prompt}", use_container_width=True)
+                    final_output = f"Maine aapke liye **{img_prompt}** generate kar di hai."
+                    current_img = img_url
+
+                # --- CASE 2: DEEP THINKING (ChatGPT style) ---
+                elif "<thinking>" in full_res:
+                    parts = full_res.split("</thinking>")
+                    thinking_txt = parts[0].replace("<thinking>", "").strip()
+                    st.write(thinking_txt) # Shows AI logic inside the dropdown
+                    final_output = parts[1].strip()
+                    status.update(label="Thinking complete!", state="complete")
+                    current_img = None
                 
-                status.update(label="Response Ready!", state="complete")
-                
+                else:
+                    final_output = full_res
+                    status.update(label="Done!", state="complete")
+                    current_img = None
+
             except Exception as e:
                 if "429" in str(e):
-                    full_res = "⚠️ Quota Limit Exceeded! Google ki free limit khatam ho gayi hai. Please 1-2 minute baad try karein."
+                    final_output = "⚠️ Quota Limit Exceeded! Google ki free limit khatam ho gayi hai. Please 1-2 minute baad try karein."
                 else:
-                    full_res = f"Error: {e}"
-                current_img_url = None
-                status.update(label="Error!", state="error")
+                    final_output = f"System Error: {e}. Check API Key."
+                status.update(label="Failed!", state="error")
+                current_img = None
 
-        # Final Display
-        st.markdown(full_res)
-        if current_img_url:
-            st.image(current_img_url)
-
-        # SAVE TO MEMORY (Like Gemini)
-        msg_to_store = {"role": "assistant", "content": full_res}
-        if current_img_url:
-            msg_to_store["image"] = current_img_url
+        # Final Chat Response (outside status box)
+        st.markdown(final_output)
         
+        # Save to memory (Display + Context)
+        msg_to_store = {"role": "assistant", "content": final_output}
+        if current_img:
+            msg_to_store["image"] = current_img
         st.session_state.messages.append(msg_to_store)
         
-        # Save to AI Memory (Context)
         st.session_state.chat_memory.append({"role": "user", "parts": [prompt]})
-        st.session_state.chat_memory.append({"role": "model", "parts": [full_res]})
+        st.session_state.chat_memory.append({"role": "model", "parts": [final_output]})
         
