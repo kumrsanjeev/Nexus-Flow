@@ -1,12 +1,11 @@
 import streamlit as st
-# CRITICAL: Page config must be first line
-st.set_page_config(page_title="Nexus Flow Pro", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
 
 from agent import initialize_agent, get_chat_response
 import urllib.parse
 import re
 
-# Memory Persistence
+# Persistent Chat State
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "api_history" not in st.session_state:
@@ -21,7 +20,7 @@ with st.sidebar:
     st.divider()
     st.caption("Owner: Sanjeev")
 
-# Display Persistent History
+# Display History (Persistent)
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
@@ -40,37 +39,33 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
         with st.status("Nexus Flow is thinking...", expanded=False) as status:
             try:
                 model = initialize_agent()
-                if model:
-                    full_res = get_chat_response(model, prompt, st.session_state.api_history)
-                    
-                    # 1. Parse Reasoning
-                    if "<thinking>" in full_res:
-                        parts = full_res.split("</thinking>")
-                        st.info(f"🧠 Logic: {parts[0].replace('<thinking>', '').strip()}")
-                        full_res = parts[1].strip() if len(parts) > 1 else full_res
+                full_res = get_chat_response(model, prompt, st.session_state.api_history)
+                
+                # Handling logic
+                if "<thinking>" in full_res:
+                    full_res = full_res.split("</thinking>")[-1].strip()
 
-                    # 2. Parse Image
-                    if "[GENERATE_IMAGE:" in full_res:
-                        match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
-                        if match:
-                            img_p = match.group(1).strip()
-                            img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_p)}?width=1024&height=1024&model=flux"
-                            final_ans = f"✅ Image ready: **{img_p}**"
-                    
-                    if not final_ans: final_ans = full_res
-
-                    status.update(label="Done!", state="complete")
-                    st.markdown(final_ans)
-                    if img_url: st.image(img_url)
-                    
-                    # 3. Save to History
-                    st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": img_url})
-                    st.session_state.api_history.append({"role": "user", "parts": [prompt]})
-                    st.session_state.api_history.append({"role": "model", "parts": [final_ans]})
-                else:
-                    status.update(label="System Error!", state="error")
-                    st.error("Model scanner fail ho gaya. Ek baar naya API Key try karein.")
+                if "[GENERATE_IMAGE:" in full_res:
+                    match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
+                    if match:
+                        img_p = match.group(1).strip()
+                        img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_p)}?width=1024&height=1024&model=flux"
+                        final_ans = f"✅ Image ready for: **{img_p}**"
+                
+                if not final_ans: final_ans = full_res
+                status.update(label="Done!", state="complete")
+                
             except Exception as e:
                 status.update(label="Failed!", state="error")
-                st.error(f"Error: {e}")
-                
+                if "429" in str(e): final_ans = "⚠️ Quota full! Please wait 60 seconds."
+                else: final_ans = f"Error: {e}"
+
+        # Display Final Result
+        st.markdown(final_ans)
+        if img_url: st.image(img_url)
+        
+        # Save to Memory (Crucial)
+        st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": img_url})
+        st.session_state.api_history.append({"role": "user", "parts": [prompt]})
+        st.session_state.api_history.append({"role": "model", "parts": [final_ans]})
+        
