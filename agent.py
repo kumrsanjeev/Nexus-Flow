@@ -63,4 +63,4 @@ def get_chat_response(model, user_input, history):
         return "⚠️ I couldn't process that language/content due to safety filters. Try again."
     except Exception as e:
         return f"System Error: {str(e)}"
-        
+
