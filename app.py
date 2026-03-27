@@ -1,110 +1,89 @@
 import streamlit as st
 from agent import initialize_agent, get_chat_response
-from tools import get_system_status
+import urllib.parse
 import streamlit.components.v1 as components
 
-# 1. Page Configuration
+# Page Setup
 st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
 
-# 2. Custom CSS for Dark Theme & Chat Bubbles
+# Custom CSS
 st.markdown("""
     <style>
     .main { background-color: #0E1117; }
-    .stChatMessage { border-radius: 15px; border: 1px solid #161B22; padding: 10px; }
-    .stStatusWidget { border-radius: 10px; }
+    .stChatMessage { border-radius: 12px; border: 1px solid #161B22; }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. Sidebar Branding
+# Sidebar
 with st.sidebar:
-    st.image("https://img.icons8.com/nolan/512/artificial-intelligence.png", width=80)
-    st.title("Nexus Flow")
+    st.title("Nexus Flow 🤖")
     st.info("Status: Online 🟢")
-    if st.button("🚀 Run Diagnostics"):
-        st.write(get_system_status())
+    if st.button("🗑️ Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
     st.divider()
-    st.caption("Developed by Sanjeev | v2.0")
+    st.caption("Developed by Sanjeev")
 
-st.title("Nexus Flow AI ⚡")
-
-# 4. Session State for Chat
+# Chat History Session
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display Chat History
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
 
-# 5. User Input & Agent Logic
+# User Input Logic
 if prompt := st.chat_input("Kaise help karu Sanjeev?"):
-    # Show User Message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Response Generation
     with st.chat_message("assistant"):
-        with st.status("Nexus Flow is processing...", expanded=False) as status:
+        with st.status("Nexus Flow is working...", expanded=False) as status:
             try:
-                # Initialize Brain
+                # Initialize and Call AI
                 model = initialize_agent()
+                history = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
                 
-                # Format History for Gemini (User -> Model)
-                formatted_history = []
-                for m in st.session_state.messages[:-1]:
-                    role = "model" if m["role"] == "assistant" else "user"
-                    formatted_history.append({"role": role, "parts": [m["content"]]})
-                
-                # Get Response from AI
-                full_res = get_chat_response(model, prompt, formatted_history)
-                final_display_text = ""
+                full_res = get_chat_response(model, prompt, history)
+                final_ans = ""
 
-                # --- IMAGE GENERATION LOGIC ---
-if "[GENERATE_IMAGE:" in full_res:
-    img_prompt = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-    status.update(label="Generating Image... 🎨", state="running")
-    
-    # URL ko encode karna zaroori hai (Spaces ko %20 se replace karein)
-    encoded_prompt = img_prompt.replace(" ", "%20")
-    
-    # Direct reliable URL with flux model
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux&nologo=true"
-    
-    # Displaying the image properly
-    st.image(image_url, caption=f"Nexus Flow Generated: {img_prompt}", use_container_width=True)
-    
-    # Optional: Download button add karna
-    st.markdown(f"[📥 Download Image]({image_url})")
-    
-    final_display_text = f"✅ Image ready for: **{img_prompt}**"
-    status.update(label="Image Generated!", state="complete")
+                # --- CASE 1: IMAGE GENERATION ---
+                if "[GENERATE_IMAGE:" in full_res:
+                    raw_prompt = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
+                    clean_prompt = urllib.parse.quote(raw_prompt)
+                    # High quality Flux model URL
+                    img_url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&model=flux&nologo=true"
+                    
+                    st.image(img_url, caption=f"Generated: {raw_prompt}")
+                    final_ans = f"✅ Image ready for: **{raw_prompt}**"
+                    status.update(label="Image Generated!", state="complete")
 
-                # --- CASE B: THINKING LOGIC ---
+                # --- CASE 2: THINKING LOGIC ---
                 elif "<thinking>" in full_res:
                     parts = full_res.split("</thinking>")
-                    thinking_process = parts[0].replace("<thinking>", "").strip()
-                    final_display_text = parts[1].strip()
-                    
-                    st.write(thinking_process)
+                    thinking_content = parts[0].replace("<thinking>", "").strip()
+                    st.write(thinking_content) # Dropdown mein dikhega
+                    final_ans = parts[1].strip()
                     status.update(label="Thinking Complete!", state="complete")
-                
-                # --- CASE C: DIRECT COMMANDS ---
+
+                # --- CASE 3: DIRECT COMMANDS ---
                 elif "open youtube" in prompt.lower():
-                    js_code = '<script>window.open("https://youtube.com", "_blank");</script>'
-                    components.html(js_code, height=0)
-                    final_display_text = "Opening YouTube in a new tab... 📺"
+                    js = '<script>window.open("https://youtube.com", "_blank");</script>'
+                    components.html(js, height=0)
+                    final_ans = "YouTube trigger kar diya hai! 📺"
                     status.update(label="Command Executed", state="complete")
-                
-                # --- CASE D: NORMAL RESPONSE ---
+
+                # --- CASE 4: NORMAL RESPONSE ---
                 else:
-                    final_display_text = full_res
+                    final_ans = full_res
                     status.update(label="Done!", state="complete")
 
             except Exception as e:
-                status.update(label="Error!", state="error")
-                final_display_text = f"Oops, error aa gaya: {e}"
+                final_ans = f"Error: {e}"
+                status.update(label="Failed!", state="error")
 
-        # Final UI Update
-        st.markdown(final_display_text)
-        st.session_state.messages.append({"role": "assistant", "content": final_display_text})
+        # Display Final Answer and Save
+        st.markdown(final_ans)
+        st.session_state.messages.append({"role": "assistant", "content": final_ans})
+        
