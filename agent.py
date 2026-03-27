@@ -2,23 +2,20 @@ import google.generativeai as genai
 import streamlit as st
 
 def initialize_agent():
-    # Fetch API key from Streamlit secrets
+    # API Key check
     if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("API Key not found in Streamlit Secrets!")
+        st.error("API Key missing! Add it to Streamlit Secrets.")
         return None
         
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Try using this specific string which is most compatible
-    model = genai.GenerativeModel("models/gemini-1.5-flash") 
+    # Using the most compatible string for 2026
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
     return model
 
 def get_chat_response(model, user_input, history):
-    if model is None:
-        return "Model not initialized. Check API Key."
-        
-    # Start chat with reformatted history
+    # Gemini expects history in a specific 'user'/'model' format
     chat = model.start_chat(history=history)
     response = chat.send_message(user_input)
     return response.text
+    
