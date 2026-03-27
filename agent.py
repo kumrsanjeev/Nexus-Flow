@@ -8,10 +8,11 @@ def initialize_agent():
         
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Stable instructions
-    instruction = "You are Nexus Flow Pro. Expert in Video Editing and SAT/JEE."
+    # Custom Instructions for Sanjeev
+    instruction = "You are Nexus Flow Pro. Expert in Video Editing and SAT/JEE Prep."
     
     try:
+        # Using stable model version
         model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
         return model
     except:
@@ -26,5 +27,6 @@ def get_chat_response(model, user_input, api_history):
         return response.text
     except Exception as e:
         if "429" in str(e):
-            return "⚠️ Quota Full! 60 seconds wait karein."
+            return "⚠️ Quota Full! 60 seconds wait karke try karein."
         return f"API Error: {str(e)}"
+        
