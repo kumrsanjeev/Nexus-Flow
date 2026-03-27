@@ -1,6 +1,6 @@
 import streamlit as st
-# Must be the very first line
-st.set_page_config(page_title="Nexus Flow | Context Pro", page_icon="⚡", layout="wide")
+# MUST BE LINE 1
+st.set_page_config(page_title="Nexus Flow | Pro", page_icon="⚡", layout="wide")
 
 from agent import initialize_agent, get_chat_response
 import urllib.parse
@@ -8,9 +8,9 @@ import re
 
 # Persistent Memory State
 if "messages" not in st.session_state:
-    st.session_state.messages = [] # For UI Display
+    st.session_state.messages = []
 if "api_history" not in st.session_state:
-    st.session_state.api_history = [] # For Gemini Context
+    st.session_state.api_history = []
 
 # Sidebar
 with st.sidebar:
@@ -22,11 +22,11 @@ with st.sidebar:
     st.divider()
     st.caption("Owner: Sanjeev")
 
-# Display Chat History (Like Gemini)
+# Display History
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
-        if "image" in m:
+        if "image" in m and m["image"]:
             st.image(m["image"])
 
 # User Input
@@ -36,23 +36,22 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
+        # Variables initialized to avoid NameError
+        final_ans = ""
+        img_url = None
+        
         with st.status("Nexus Flow is thinking...", expanded=False) as status:
             try:
                 model = initialize_agent()
-                # Get response with full memory
                 full_res = get_chat_response(model, prompt, st.session_state.api_history)
                 
-                final_ans = ""
-                img_url = None
-
-                # 1. Handle Thinking logic
+                # Handling Thinking logic
                 if "<thinking>" in full_res:
                     parts = full_res.split("</thinking>")
-                    thinking_txt = parts[0].replace("<thinking>", "").strip()
-                    st.info(f"🧠 Reasoning: {thinking_txt}")
+                    st.info(f"🧠 Reasoning: {parts[0].replace('<thinking>', '').strip()}")
                     full_res = parts[1].strip() if len(parts) > 1 else full_res
 
-                # 2. Handle Image Generation
+                # Handling Image Generation
                 if "[GENERATE_IMAGE:" in full_res:
                     img_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
                     if img_match:
@@ -70,17 +69,14 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
                 final_ans = f"System Error: {e}"
                 status.update(label="Failed!", state="error")
 
-        # Display Final Result
+        # UI Output
         st.markdown(final_ans)
         if img_url:
             st.image(img_url)
 
-        # 3. SAVE TO MEMORY (CRITICAL)
-        msg_store = {"role": "assistant", "content": final_ans}
-        if img_url: msg_store["image"] = img_url
+        # Save to Memory
+        msg_store = {"role": "assistant", "content": final_ans, "image": img_url}
         st.session_state.messages.append(msg_store)
-        
-        # Save to API Context (Memory)
         st.session_state.api_history.append({"role": "user", "parts": [prompt]})
         st.session_state.api_history.append({"role": "model", "parts": [final_ans]})
         
