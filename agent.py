@@ -3,31 +3,32 @@ import streamlit as st
 
 def initialize_agent():
     if "GOOGLE_API_KEY" not in st.secrets:
-        st.error("API Key missing! Add it to Secrets.")
+        st.error("API Key missing! Check Secrets.")
         return None
         
-    # FIX: No version string, purely stable config
+    # FIX: No version string, let the library pick the stable one
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # System Instruction for Advanced Logic
-    instruction = """
-    You are Nexus Flow AI Pro. 
-    1. REASONING: Always think deeply inside <thinking> tags.
-    2. IMAGE: For visuals, use [GENERATE_IMAGE: English prompt].
-    3. PERSONALITY: You are Sanjeev's digital partner.
-    """
-    
     try:
-        # Step 1: Force find stable models only
-        available_models = [m.name for m in genai.list_models()]
+        # Step 1: Get list of all available models for your key
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # Priority selection to avoid 404
-        selected = "models/gemini-1.5-flash" if "models/gemini-1.5-flash" in available_models else "models/gemini-pro"
+        # Step 2: Priority selection (Flash is faster and cheaper)
+        selected = None
+        for target in ["models/gemini-1.5-flash", "models/gemini-pro"]:
+            if target in available_models:
+                selected = target
+                break
         
-        return genai.GenerativeModel(model_name=selected, system_instruction=instruction)
-    except Exception:
-        # Final emergency fallback
-        return genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
+        if not selected and available_models:
+            selected = available_models[0]
+            
+        # FIX: No version prefix here either
+        model = genai.GenerativeModel(model_name=selected)
+        return model
+    except Exception as e:
+        # Final fallback if everything fails
+        return genai.GenerativeModel(model_name="gemini-pro")
 
 def get_chat_response(model, user_input, history):
     if model is None: return "Agent Error."
