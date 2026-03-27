@@ -6,7 +6,6 @@ def initialize_agent():
         st.error("API Key missing!")
         return None
         
-    # Using stable configuration
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
     instruction = """
@@ -17,31 +16,32 @@ def initialize_agent():
     - Style: Professional Hinglish.
     """
     
-    try:
-        # Step 1: Force model discovery from the stable list
-        available = [m.name for m in genai.list_models()]
-        
-        # Priority mapping to avoid 404
-        selected = None
-        for target in ["models/gemini-1.5-flash", "models/gemini-pro"]:
-            if target in available:
-                selected = target
-                break
-        
-        if not selected:
-            selected = "gemini-pro" # Hard fallback
-
-        return genai.GenerativeModel(
-            model_name=selected,
-            system_instruction=instruction
-        )
-    except Exception as e:
-        # Desperate fallback for 404/API issues
+    # --- PRO FIX: Try Multiple Model Name Formats ---
+    # Kuch accounts mein 'models/gemini-pro' chalta hai, kuch mein sirf 'gemini-pro'
+    test_models = ["gemini-1.5-flash", "models/gemini-1.5-flash", "gemini-pro", "models/gemini-pro"]
+    
+    selected_model = None
+    for m_name in test_models:
+        try:
+            model = genai.GenerativeModel(model_name=m_name, system_instruction=instruction)
+            # Chota sa check call
+            selected_model = model
+            break 
+        except Exception:
+            continue
+            
+    if not selected_model:
+        # Last resort fallback
         return genai.GenerativeModel(model_name="gemini-pro", system_instruction=instruction)
+        
+    return selected_model
 
 def get_chat_response(model, user_input, history):
     if model is None: return "Agent initialization failed."
-    chat = model.start_chat(history=history)
-    response = chat.send_message(user_input)
-    return response.text
-    
+    try:
+        chat = model.start_chat(history=history)
+        response = chat.send_message(user_input)
+        return response.text
+    except Exception as e:
+        return f"API Error: {str(e)}"
+        
