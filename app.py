@@ -1,5 +1,5 @@
 import streamlit as st
-# MUST BE LINE 1
+# Line 1: Page setup
 st.set_page_config(page_title="Nexus Flow | Pro", page_icon="⚡", layout="wide")
 
 from agent import initialize_agent, get_chat_response
@@ -26,7 +26,7 @@ with st.sidebar:
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
-        if "image" in m and m["image"]:
+        if m.get("image"):
             st.image(m["image"])
 
 # User Input
@@ -36,7 +36,6 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        # Variables initialized to avoid NameError
         final_ans = ""
         img_url = None
         
@@ -45,20 +44,17 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
                 model = initialize_agent()
                 full_res = get_chat_response(model, prompt, st.session_state.api_history)
                 
-                # Handling Thinking logic
+                # Handling Thinking & Images
                 if "<thinking>" in full_res:
-                    parts = full_res.split("</thinking>")
-                    st.info(f"🧠 Reasoning: {parts[0].replace('<thinking>', '').strip()}")
-                    full_res = parts[1].strip() if len(parts) > 1 else full_res
+                    full_res = full_res.split("</thinking>")[-1].strip()
 
-                # Handling Image Generation
                 if "[GENERATE_IMAGE:" in full_res:
                     img_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
                     if img_match:
                         img_p = img_match.group(1).strip()
                         encoded_p = urllib.parse.quote(img_p)
                         img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&model=flux&nologo=true"
-                        final_ans = f"✅ Image ready for: **{img_p}**"
+                        final_ans = f"✅ Image ready: **{img_p}**"
                 
                 if not final_ans:
                     final_ans = full_res
@@ -75,8 +71,7 @@ if prompt := st.chat_input("Puchiye Sanjeev..."):
             st.image(img_url)
 
         # Save to Memory
-        msg_store = {"role": "assistant", "content": final_ans, "image": img_url}
-        st.session_state.messages.append(msg_store)
+        st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": img_url})
         st.session_state.api_history.append({"role": "user", "parts": [prompt]})
         st.session_state.api_history.append({"role": "model", "parts": [final_ans]})
         
