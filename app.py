@@ -8,7 +8,7 @@ import urllib.parse
 import re
 import random
 
-# --- 1. PREMIUM CLEAN UI (ChatGPT Style) ---
+# --- 1. PREMIUM LIGHT THEME (Gemini/ChatGPT Style) ---
 st.set_page_config(page_title="Nexus Flow Ultra", page_icon="🤖", layout="wide")
 
 st.markdown("""
@@ -18,7 +18,7 @@ st.markdown("""
     .stChatMessage { border-radius: 12px; padding: 1.2rem !important; margin-bottom: 1rem; border: 1px solid #f0f0f0 !important; }
     .stChatInputContainer { padding-bottom: 2rem; }
     .stChatInput { border-radius: 26px !important; border: 1px solid #e5e7eb !important; }
-    .main-header { font-size: 2.2rem; font-weight: 600; text-align: center; margin-bottom: 2rem; color: #1f2937; }
+    .main-header { font-size: 2.5rem; font-weight: 600; text-align: center; margin-bottom: 2rem; color: #1f2937; }
     /* Pill Buttons */
     .stButton>button {
         background-color: #ffffff !important;
@@ -31,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API KEYS SETUP ---
+# --- 2. KEYS & INITIALIZATION ---
 groq_key = st.secrets.get("GROQ_API_KEY")
 google_key = st.secrets.get("GOOGLE_API_KEY")
 
@@ -45,15 +45,15 @@ genai.configure(api_key=google_key)
 if "messages" not in st.session_state: st.session_state.messages = []
 if "db" not in st.session_state: st.session_state.db = None
 
-# --- 3. SIDEBAR & PDF ENGINE ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
-    st.markdown("<h3 style='text-align:center;'>Nexus Hub</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;'>Nexus Hub ⚡</h3>", unsafe_allow_html=True)
     if st.button("➕ New Conversation"):
         st.session_state.messages = []
         st.session_state.db = None
         st.rerun()
     st.markdown("---")
-    uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+    uploaded = st.file_uploader("Upload PDFs 📂", type="pdf", accept_multiple_files=True)
     if uploaded and st.button("🚀 Sync Brain"):
         text = ""
         for f in uploaded:
@@ -64,19 +64,19 @@ with st.sidebar:
         index = faiss.IndexFlatL2(len(embeddings[0]))
         index.add(np.array(embeddings).astype('float32'))
         st.session_state.db, st.session_state.chunks = index, chunks
-        st.success("Synced! ✅")
+        st.success("Brain Synced! ✅")
 
-# --- 4. HOME PAGE ---
+# --- 4. HOME PAGE (Gemini Style) ---
 if not st.session_state.messages:
-    st.markdown("<div class='main-header'>How can I help you, Sanjeev?</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'>What can I help with, Sanjeev? ✨</div>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🖼️ Generate image of a cat"):
-            st.session_state.messages.append({"role":"user", "content":"Ek pyari billi ki photo banao 🐱"})
+        if st.button("🖼️ Create image of a dog 🐕"):
+            st.session_state.messages.append({"role":"user", "content":"Ek pyare kutte ki photo banao 🐶"})
             st.rerun()
     with col2:
-        if st.button("📝 SAT Math Practice"):
-            st.session_state.messages.append({"role":"user", "content":"Ask me a tough SAT math question"})
+        if st.button("📝 SAT Practice Question 🧠"):
+            st.session_state.messages.append({"role":"user", "content":"Give me a tough SAT math question"})
             st.rerun()
 else:
     for m in st.session_state.messages:
@@ -85,7 +85,7 @@ else:
             if "image" in m and m["image"]:
                 st.image(m["image"], use_container_width=True)
 
-# --- 5. CORE LOGIC (Language Mirroring) ---
+# --- 5. CHAT LOGIC (Language & Visual Fix) ---
 if prompt := st.chat_input("Ask anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
@@ -95,27 +95,23 @@ if prompt := st.chat_input("Ask anything..."):
         full_response = ""
         
         try:
-            # Context retrieval
+            # Context search
             context = ""
             if st.session_state.db:
                 q_emb = genai.embed_content(model="models/embedding-001", content=prompt, task_type="retrieval_query")['embedding']
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
-            # MANDATORY LANGUAGE MIRRORING INSTRUCTIONS
+            # MANDATORY RULES
             sys_msg = f"""
-            You are Nexus Flow Ultra. 
-            STRICT RULES:
-            1. LANGUAGE MIRRORING: Reply EXACTLY in the language/script the user uses. 
-               - If user asks in English, reply in English.
-               - If user asks in Hindi (Devanagari), reply in Hindi.
-               - If user asks in Hinglish (Roman script Hindi), reply in Hinglish.
-            2. FORMATTING: Use bold headings and bullet points like ChatGPT.
-            3. IMAGES: If user asks for an image/photo, respond ONLY with: [GENERATE_IMAGE: English description of image]. Never say "I am a text-based AI".
+            You are Nexus Flow Ultra.
+            - LANGUAGE: Reply in the EXACT same language/style as the user (Hindi/English/Hinglish).
+            - EMOJIS: Use suitable emojis in every sentence to be friendly like ChatGPT/Gemini 🚀✨.
+            - IMAGE: If user asks for an image, respond ONLY with: [GENERATE_IMAGE: highly descriptive English prompt]. Never say "I can't generate images".
+            - FORMATTING: Use bold text and bullet points for long answers.
             Context: {context}
             """
             
-            # Streaming from Llama 3.3 (Fast & Accurate)
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": sys_msg}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]],
@@ -129,18 +125,19 @@ if prompt := st.chat_input("Ask anything..."):
             
             response_placeholder.markdown(full_response)
             
-            # Image Handler
+            # --- IMAGE GENERATION FIX ---
             img_url = None
             if "[GENERATE_IMAGE:" in full_response:
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_response)
                 if match:
                     img_prompt = match.group(1).strip()
-                    # Creating the direct image URL
-                    img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_prompt)}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
+                    # Fix: Encoding URL properly and adding random seed
+                    encoded_prompt = urllib.parse.quote(img_prompt)
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
                     st.image(img_url, use_container_width=True)
 
             st.session_state.messages.append({"role": "assistant", "content": full_response, "image": img_url})
 
         except Exception as e:
-            st.error(f"Error: {e}")
-            
+            st.error(f"Error: {e} ❌")
+        
