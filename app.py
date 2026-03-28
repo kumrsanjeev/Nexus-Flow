@@ -35,7 +35,6 @@ def process_pdf(files):
 
     chunks = splitter.split_text(text)
 
-    # ✅ FIXED EMBEDDING
     embeddings = GoogleGenerativeAIEmbeddings(
         model="embedding-001"
     )
@@ -72,7 +71,7 @@ with st.sidebar:
 
 # ---------------- MAIN UI ----------------
 st.title("🤖 Nexus Flow AI")
-st.caption("Gemini 1.5 Flash + PDF RAG")
+st.caption("Gemini 2.0 Flash + PDF RAG")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -93,7 +92,6 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # -------- RAG MODE --------
                 if st.session_state.vector_db:
                     docs = st.session_state.vector_db.similarity_search(prompt, k=3)
 
@@ -111,14 +109,10 @@ Question:
                 else:
                     final_prompt = prompt
 
-                # ✅ FIXED GEMINI 1.5 FLASH
-                model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash"
-                )
+                # ✅ FINAL FIXED MODEL
+                model = genai.GenerativeModel("gemini-2.0-flash")
 
-                response = model.generate_content(
-                    contents=final_prompt
-                )
+                response = model.generate_content(final_prompt)
 
                 final_text = response.text
 
