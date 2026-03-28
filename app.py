@@ -1,64 +1,79 @@
 import streamlit as st
-st.set_page_config(page_title="Nexus Flow Pro (OpenAI)", page_icon="⚡", layout="wide")
+import google.generativeai as genai
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_community.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+from pypdf import PdfReader
+import os
 
-from agent import initialize_agent, get_chat_response
-import urllib.parse
-import re
+# 1. Configuration
+st.set_page_config(page_title="Nexus Flow Pro: Gemini Edition ⚡", layout="wide")
 
-# Session State for History
+# 2. Key Handling (OpenAI hatakar Gemini set kiya)
+api_key = st.secrets.get("GOOGLE_API_KEY")
+if api_key:
+    os.environ["GOOGLE_API_KEY"] = api_key
+    genai.configure(api_key=api_key)
+else:
+    st.error("⚠️ Sanjeev, Secrets mein GOOGLE_API_KEY add karo!")
+    st.stop()
+
+# 3. RAG Functions (Using Google Embeddings)
+def get_pdf_text(pdf_docs):
+    text = ""
+    for pdf in pdf_docs:
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+    return text
+
+def get_vector_store(text):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    chunks = text_splitter.split_text(text)
+    # Google specific embeddings
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    vector_store = FAISS.from_texts(chunks, embedding=embeddings)
+    return vector_store
+
+# 4. UI & Chat Logic
+st.title("Nexus Flow Pro 🤖")
+
+with st.sidebar:
+    st.header("Study Material")
+    pdf_docs = st.file_uploader("Upload SAT PDFs", accept_multiple_files=True)
+    if st.button("Train Nexus Flow"):
+        with st.spinner("Learning..."):
+            raw_text = get_pdf_text(pdf_docs)
+            st.session_state.vector_store = get_vector_store(raw_text)
+            st.success("I'm now smarter!")
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-with st.sidebar:
-    st.title("Nexus Flow Pro 🤖")
-    if st.button("🗑️ Clear Chat"):
-        st.session_state.messages = []
-        st.rerun()
-    st.caption("Powered by OpenAI")
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-# Display Messages (Crash-Proof)
-for m in st.session_state.messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
-        if m.get("image"):
-            st.image(m["image"])
-
-# Input Logic
-if prompt := st.chat_input("Kaise help karu Sanjeev?"):
+if prompt := st.chat_input("Puchiye Sanjeev..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        final_ans = ""
-        display_img = None
+        if "vector_store" in st.session_state:
+            # RAG Mode
+            llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
+            chain = RetrievalQA.from_chain_type(
+                llm=llm, chain_type="stuff", 
+                retriever=st.session_state.vector_store.as_retriever()
+            )
+            response = chain.invoke(prompt)["result"]
+        else:
+            # General Chat Mode
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt).text
         
-        with st.status("GPT-4o is thinking...", expanded=False) as status:
-            client = initialize_agent()
-            if client:
-                # Prepare history for OpenAI format
-                history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[:-1]]
-                
-                full_res = get_chat_response(client, prompt, history)
-
-                # Image Parsing
-                if "[GENERATE_IMAGE:" in full_res:
-                    raw_p = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                    display_img = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(raw_p)}?width=1024&height=1024&nologo=true"
-                    final_ans = f"✅ Image ready: **{raw_p}**"
-                
-                # Thinking Parsing
-                elif "<thinking>" in full_res:
-                    parts = full_res.split("</thinking>")
-                    st.expander("🧠 Reasoning").write(parts[0].replace("<thinking>", "").strip())
-                    final_ans = parts[1].strip()
-                else:
-                    final_ans = full_res
-                
-                status.update(label="Done!", state="complete")
-
-        st.markdown(final_ans)
-        if display_img: st.image(display_img)
-        
-        st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": display_img})
+        st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})
         
