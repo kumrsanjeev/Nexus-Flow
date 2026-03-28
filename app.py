@@ -131,4 +131,3 @@ if prompt := st.chat_input("How can I help you today?"):
         msg_data = {"role": "assistant", "content": final_text}
         if img_url: msg_data["image"] = img_url
         st.session_state.messages.append(msg_data)
-                        
