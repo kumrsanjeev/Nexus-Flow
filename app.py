@@ -102,7 +102,7 @@ if prompt := st.chat_input("Ask a deep question..."):
             
             # Using LLaMA 3.3-70b (The Reasoning King)
             completion = client.chat.completions.create(
-                model="llama-3.3-70b-specdec",
+                model="llama-3.3-70b-versatile-",
                 messages=[{"role": "system", "content": sys_msg}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-8:]],
                 stream=True,
                 temperature=0.5 # Low temperature for more logical/deep answers
