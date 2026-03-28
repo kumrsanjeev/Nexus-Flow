@@ -1,59 +1,67 @@
 import streamlit as st
 import google.generativeai as genai
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_community.vectorstores import FAISS
-from langchain_text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
 from pypdf import PdfReader
+import faiss
+import numpy as np
 import urllib.parse
 import re
 import os
 
 # --- 1. CONFIG & STYLING ---
-st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Nexus Flow AI", page_icon="🤖", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #FFFFFF; }
-    .thinking-box { background-color: #1a1c23; border-left: 4px solid #00ffcc; padding: 10px; margin: 10px 0; color: #00ffcc; font-family: monospace; }
+    .thinking-box { background-color: #1a1c23; border-left: 4px solid #00ffcc; padding: 10px; margin: 10px 0; color: #00ffcc; font-family: monospace; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API KEY SETUP ---
+# --- 2. API SETUP ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
-    os.environ["GOOGLE_API_KEY"] = api_key
 else:
-    st.error("⚠️ API Key missing! Add GOOGLE_API_KEY in Secrets.")
+    st.error("⚠️ API Key missing! Add GOOGLE_API_KEY in Streamlit Secrets.")
     st.stop()
 
-# --- 3. CHATBOT ENGINE ---
-def initialize_agent():
-    instruction = """
-    You are Nexus Flow AI. 
-    1. IMAGE: For image requests, respond ONLY with: [GENERATE_IMAGE: descriptive prompt in English]
-    2. THINKING: For complex tasks, use <thinking> logic </thinking> then final answer.
-    3. LANGUAGE: Use Hinglish.
-    """
-    return genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
-
-def process_pdf(pdf_files):
+# --- 3. CORE LOGIC (PDF & Embeddings without LangChain) ---
+def get_pdf_text(pdf_files):
     text = ""
     for pdf in pdf_files:
         pdf_reader = PdfReader(pdf)
         for page in pdf_reader.pages:
             text += page.extract_text() or ""
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = splitter.split_text(text)
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    return FAISS.from_texts(chunks, embeddings)
+    return text
+
+def create_vector_db(text):
+    # Text Splitter Logic
+    chunks = [text[i:i+1000] for i in range(0, len(text), 800)]
+    
+    # Get Embeddings using Pure Gemini
+    embeddings = []
+    for chunk in chunks:
+        result = genai.embed_content(model="models/embedding-001", content=chunk, task_type="retrieval_document")
+        embeddings.append(result['embedding'])
+    
+    # FAISS Index
+    dimension = len(embeddings[0])
+    index = faiss.IndexFlatL2(dimension)
+    index.add(np.array(embeddings).astype('float32'))
+    return index, chunks
+
+def search_docs(query, index, chunks):
+    query_emb = genai.embed_content(model="models/embedding-001", content=query, task_type="retrieval_query")['embedding']
+    D, I = index.search(np.array([query_emb]).astype('float32'), k=3)
+    context = "\n".join([chunks[i] for i in I[0] if i < len(chunks)])
+    return context
 
 # --- 4. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "vector_db" not in st.session_state:
-    st.session_state.vector_db = None
+if "index" not in st.session_state:
+    st.session_state.index = None
+    st.session_state.chunks = None
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
@@ -61,13 +69,14 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
     if uploaded and st.button("Sync Documents"):
         with st.spinner("Learning..."):
-            st.session_state.vector_db = process_pdf(uploaded)
-            st.success("Docs Synced!")
+            raw_text = get_pdf_text(uploaded)
+            st.session_state.index, st.session_state.chunks = create_vector_db(raw_text)
+            st.success("Synced Successfully!")
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
 
-# --- 6. MAIN CHAT UI ---
+# --- 6. MAIN UI & CHAT ---
 st.title("Nexus Flow AI 🤖")
 
 for m in st.session_state.messages:
@@ -75,44 +84,47 @@ for m in st.session_state.messages:
         st.markdown(m["content"])
         if "image" in m: st.image(m["image"])
 
-if prompt := st.chat_input("Kaise help karu Sanjeev?"):
+if prompt := st.chat_input("How can I help you today?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
         try:
-            if st.session_state.vector_db and any(x in prompt.lower() for x in ['pdf', 'file', 'doc']):
-                llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-                qa = RetrievalQA.from_chain_type(llm=llm, retriever=st.session_state.vector_db.as_retriever())
-                raw_res = qa.invoke(prompt)["result"]
-            else:
-                model = initialize_agent()
-                raw_res = model.generate_content(prompt).text
-
-            final_text = raw_res
+            # System Instruction for Image & Thinking
+            sys_inst = "You are Nexus Flow AI. Use Hinglish. For images respond only with [GENERATE_IMAGE: prompt]. Use <thinking> for logic."
+            
+            context = ""
+            if st.session_state.index:
+                context = search_docs(prompt, st.session_state.index, st.session_state.chunks)
+            
+            model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=sys_inst)
+            full_prompt = f"Context: {context}\n\nUser Question: {prompt}" if context else prompt
+            
+            res = model.generate_content(full_prompt).text
+            
+            # Parsers
+            final_text = res
             img_url = None
 
-            # Thinking Parser
-            if "<thinking>" in raw_res:
-                parts = raw_res.split("</thinking>")
-                thought = parts[0].replace("<thinking>", "").strip()
+            if "<thinking>" in res:
+                parts = res.split("</thinking>")
+                st.markdown(f'<div class="thinking-box"><b>🧠 Logic:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
                 final_text = parts[1].strip()
-                st.markdown(f'<div class="thinking-box"><b>🧠 Logic:</b><br>{thought}</div>', unsafe_allow_html=True)
 
-            # Image Parser
             if "[GENERATE_IMAGE:" in final_text:
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
                 if match:
                     img_prompt = match.group(1).strip()
                     img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_prompt)}?width=1024&height=1024&nologo=true"
-                    final_text = f"🎨 **Image:** {img_prompt}"
+                    final_text = f"🎨 **Visualizing:** {img_prompt}"
 
             st.markdown(final_text)
             if img_url: st.image(img_url)
-            
+
             msg = {"role": "assistant", "content": final_text}
             if img_url: msg["image"] = img_url
             st.session_state.messages.append(msg)
+            
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error: {str(e)}")
             
