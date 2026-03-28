@@ -1,99 +1,97 @@
 import streamlit as st
+from groq import Groq
 import google.generativeai as genai
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_community.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
 from pypdf import PdfReader
+import faiss
+import numpy as np
 import urllib.parse
 import re
-import os
 
-# --- PAGE SETUP ---
-st.set_page_config(page_title="Nexus Flow Pro 🤖", layout="wide")
+# --- 1. INITIALIZE CLIENTS ---
+def initialize_clients():
+    groq_key = st.secrets.get("GROQ_API_KEY")
+    google_key = st.secrets.get("GOOGLE_API_KEY")
+    
+    if not groq_key or not google_key:
+        st.error("⚠️ API Keys missing! Add GROQ_API_KEY and GOOGLE_API_KEY in Secrets.")
+        return None, None
+    
+    groq_client = Groq(api_key=groq_key)
+    genai.configure(api_key=google_key)
+    return groq_client, genai
 
-# --- API SETUP ---
-api_key = st.secrets.get("GOOGLE_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
-    os.environ["GOOGLE_API_KEY"] = api_key
-else:
-    st.error("⚠️ API Key missing in Secrets!")
-    st.stop()
-
-# --- SYSTEM INSTRUCTION ---
-instruction = """
-You are Nexus Flow AI. 
-1. IMAGE: For image requests, respond ONLY with: [GENERATE_IMAGE: descriptive prompt in English]
-2. THINKING: Use <thinking> logic </thinking> for complex tasks.
-3. PERSONALITY: Helpful Generic AI.
-"""
-
-# --- RAG ENGINE (PDF) ---
-def process_pdf(pdf_files):
+# --- 2. KNOWLEDGE RETRIEVAL (PDF Logic) ---
+def process_pdf_to_faiss(pdf_files):
     text = ""
     for pdf in pdf_files:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
+        reader = PdfReader(pdf)
+        for page in reader.pages:
             text += page.extract_text() or ""
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = splitter.split_text(text)
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    return FAISS.from_texts(chunks, embeddings)
+    
+    # Text Chunks (Sanjeev, hum chunks chote rakhenge fast processing ke liye)
+    chunks = [text[i:i+1000] for i in range(0, len(text), 800)]
+    
+    # Google Embeddings (High Limit - No Error)
+    embeddings = [genai.embed_content(model="models/embedding-001", 
+                                     content=c, 
+                                     task_type="retrieval_document")['embedding'] for c in chunks]
+    
+    index = faiss.IndexFlatL2(len(embeddings[0]))
+    index.add(np.array(embeddings).astype('float32'))
+    return index, chunks
 
-# --- SESSION STATE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "vector_db" not in st.session_state:
-    st.session_state.vector_db = None
+# --- 3. CORE CHAT LOGIC ---
+def get_nexus_response(prompt, context_index=None, chunks=None):
+    groq_client, _ = initialize_clients()
+    
+    # PDF Context Search
+    context_text = ""
+    if context_index and chunks:
+        q_emb = genai.embed_content(model="models/embedding-001", 
+                                    content=prompt, 
+                                    task_type="retrieval_query")['embedding']
+        D, I = context_index.search(np.array([q_emb]).astype('float32'), k=3)
+        context_text = "\n".join([chunks[i] for i in I[0] if i < len(chunks)])
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("📂 Knowledge")
-    uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
-    if uploaded and st.button("Sync"):
-        st.session_state.vector_db = process_pdf(uploaded)
-        st.success("Ready!")
+    # Nexus System Prompt
+    system_msg = """
+    You are Nexus Flow Ultra.
+    1. LOGIC: Use <thinking> tags for complex math/coding.
+    2. IMAGES: Use [GENERATE_IMAGE: prompt] for visuals.
+    3. STYLE: Professional Hinglish.
+    """
 
-# --- CHAT LOGIC ---
-st.title("Nexus Flow Pro 🤖")
+    # Groq API Call (Llama 3 70B - Super Fast)
+    completion = groq_client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"Context: {context_text}\n\nUser: {prompt}"}
+        ],
+        temperature=0.6
+    )
+    return completion.choices[0].message.content
 
-for m in st.session_state.messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
-        if "image" in m: st.image(m["image"])
+# --- 4. RESPONSE PARSER (For Images & Thinking) ---
+def parse_nexus_output(raw_text):
+    final_text = raw_text
+    img_url = None
+    thought = None
 
-if prompt := st.chat_input("Kaise help karu?"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    # Extract Thinking
+    if "<thinking>" in raw_text:
+        parts = raw_text.split("</thinking>")
+        thought = parts[0].replace("<thinking>", "").strip()
+        final_text = parts[1].strip()
 
-    with st.chat_message("assistant"):
-        try:
-            # Important Fix: Using gemini-1.5-flash for reliability
-            if st.session_state.vector_db:
-                llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-                qa = RetrievalQA.from_chain_type(llm=llm, retriever=st.session_state.vector_db.as_retriever())
-                raw_res = qa.invoke(prompt)["result"]
-            else:
-                model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=instruction)
-                raw_res = model.generate_content(prompt).text
+    # Extract Image Prompt
+    if "[GENERATE_IMAGE:" in final_text:
+        match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
+        if match:
+            prompt_str = match.group(1).strip()
+            encoded = urllib.parse.quote(prompt_str)
+            img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
+            final_text = f"🎨 **Nexus Visualizer:** {prompt_str}"
 
-            # Image & Thinking Logic
-            final_text = raw_res
-            img_url = None
-            if "[GENERATE_IMAGE:" in final_text:
-                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
-                if match:
-                    img_prompt = match.group(1).strip()
-                    img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_prompt)}?nologo=true"
-                    final_text = f"🎨 Generated: {img_prompt}"
-
-            st.markdown(final_text)
-            if img_url: st.image(img_url)
-            
-            msg = {"role": "assistant", "content": final_text}
-            if img_url: msg["image"] = img_url
-            st.session_state.messages.append(msg)
-        except Exception as e:
-            st.error(f"Error: {e}")
-                
+    return final_text, img_url, thought
+    
