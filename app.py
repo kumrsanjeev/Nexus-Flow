@@ -24,7 +24,8 @@ st.markdown("""
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-if "messages" not in st.session_state: st.session_state.messages = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
@@ -44,38 +45,39 @@ else:
             if "image" in m and m["image"]:
                 st.image(m["image"], use_container_width=True)
 
-# --- 5. CHAT ENGINE (Emoji + Image Fix) ---
+# --- 5. CHAT ENGINE (Blank-Image Fixed) ---
 if prompt := st.chat_input("Message Nexus..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
         full_response = ""
-        
+
         try:
             # Brain filters history (Only text)
             clean_history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-10:]]
 
             # RE-ADDING EMOJI INSTRUCTIONS
-            sys_msg = """You are Nexus AI. 
+            sys_msg = """You are Nexus AI.
             - EMOJIS: Use 1-2 relevant emojis in every response to keep it friendly. 🚀
             - LANGUAGE: Always mirror the user's language (Hinglish/Hindi).
             - IMAGES: Use ONLY [GENERATE_IMAGE: descriptive English prompt] for visuals.
             """
-            
+
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": sys_msg}] + clean_history,
                 stream=True,
-                temperature=0.75 # Creativity for emojis
+                temperature=0.75  # Creativity for emojis
             )
 
             for chunk in completion:
                 if chunk.choices[0].delta.content:
                     full_response += chunk.choices[0].delta.content
                     response_placeholder.markdown(full_response + "▌")
-            
+
             final_text = full_response
             img_url = None
 
@@ -84,25 +86,23 @@ if prompt := st.chat_input("Message Nexus..."):
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
                 if match:
                     raw_p = match.group(1).strip()
-                    # Final URL Cleanup
+                    # Safer encoding: keep only alphanumerics & spaces
                     safe_p = re.sub(r'[^a-zA-Z0-9\s]', '', raw_p)
-                    encoded = urllib.parse.quote(safe_p)
-                    
-                    # FORCE-LOAD URL (With unique seed & timestamp)
+                    encoded = urllib.parse.quote(safe_p, safe='')  # spaces → %20
+                    # Smaller size for higher success rate
                     seed = random.randint(1, 999999)
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={seed}"
-                    
-                    # CLEAN TEXT OUTPUT
+                    ts = int(time.time())  # bust cache
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=768&height=768&nologo=true&seed={seed}&t={ts}"
+
                     final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
 
             response_placeholder.markdown(final_text)
-            
+
             if img_url:
                 # Direct Display like Gemini
                 st.image(img_url, use_container_width=True)
-            
+
             st.session_state.messages.append({"role": "assistant", "content": final_text, "image": img_url})
 
         except Exception as e:
             st.error(f"Nexus Sync Error: {e}")
-            
