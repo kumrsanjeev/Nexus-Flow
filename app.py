@@ -1,115 +1,51 @@
 import streamlit as st
-from pypdf import PdfReader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-import re
+import google.generativeai as genai
+from openai import OpenAI
 
-# ---------------- PAGE ----------------
-st.set_page_config(page_title="Offline AI 🤖", layout="wide")
+st.set_page_config(page_title="Nexus Flow Pro - Dual AI", layout="wide")
+st.title("🤖 Gemini vs OpenAI Comparison")
 
-# ---------------- SESSION ----------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "chunks" not in st.session_state:
-    st.session_state.chunks = []
-
-# ---------------- PDF PROCESS ----------------
-def process_pdf(files):
-    text = ""
-    for file in files:
-        reader = PdfReader(file)
-        for page in reader.pages:
-            text += page.extract_text() or ""
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    chunks = splitter.split_text(text)
-
-    return chunks
-
-# ---------------- SIMPLE SEARCH ----------------
-def search_chunks(query, chunks):
-    scores = []
-
-    query_words = set(re.findall(r"\w+", query.lower()))
-
-    for chunk in chunks:
-        chunk_words = set(re.findall(r"\w+", chunk.lower()))
-        score = len(query_words.intersection(chunk_words))
-        scores.append((score, chunk))
-
-    scores.sort(reverse=True, key=lambda x: x[0])
-
-    return [chunk for score, chunk in scores[:3] if score > 0]
-
-# ---------------- OFFLINE AI ----------------
-def offline_ai(prompt, chunks):
-    prompt_lower = prompt.lower()
-
-    # 🔹 basic chat
-    if "hello" in prompt_lower or "hi" in prompt_lower:
-        return "Hello 👋 I'm your offline AI. Ask me anything!"
-
-    if "who are you" in prompt_lower:
-        return "I am a fully offline AI 🤖 running without any API."
-
-    # 🔹 RAG mode
-    if chunks:
-        results = search_chunks(prompt, chunks)
-
-        if results:
-            context = "\n\n".join(results)
-
-            return f"""
-📄 Based on your document:
-
-{context}
-
-🧠 Answer:
-This information suggests that your query is related to the above content.
-"""
-
-    # 🔹 fallback
-    return "⚠️ I couldn't find relevant info.\n\nTry uploading a PDF or ask simpler question."
-
-# ---------------- SIDEBAR ----------------
+# Sidebar for Setup
 with st.sidebar:
-    st.title("📂 Upload PDF")
+    st.header("API Configuration")
+    gemini_key = st.text_input("Gemini API Key:", type="password")
+    openai_key = st.text_input("OpenAI API Key:", type="password")
+    st.info("Dono keys enter karein comparison ke liye.")
 
-    files = st.file_uploader("Upload", type="pdf", accept_multiple_files=True)
+# Input Field
+user_query = st.text_input("Aapka Sawal:", placeholder="e.g., Prime Minister of India kaun hai?")
 
-    if files and st.button("Process"):
-        with st.spinner("Reading PDF..."):
-            st.session_state.chunks = process_pdf(files)
-        st.success("✅ PDF Ready!")
+if st.button("Generate Response") and user_query:
+    if not gemini_key or not openai_key:
+        st.warning("Kripya dono API keys sidebar mein enter karein.")
+    else:
+        # Create two columns for side-by-side comparison
+        col1, col2 = st.columns(2)
 
-    if st.button("🗑️ Clear Chat"):
-        st.session_state.messages = []
-        st.rerun()
+        # --- Gemini Section ---
+        with col1:
+            st.subheader("✨ Google Gemini")
+            try:
+                genai.configure(api_key=gemini_key)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                gemini_res = model.generate_content(user_query)
+                st.info(gemini_res.text)
+            except Exception as e:
+                st.error(f"Gemini Error: {e}")
 
-# ---------------- UI ----------------
-st.title("🤖 Offline AI (No API)")
-st.caption("ChatGPT Style + Free RAG System")
+        # --- OpenAI Section ---
+        with col2:
+            st.subheader("🧠 OpenAI GPT-4o")
+            try:
+                client = OpenAI(api_key=openai_key)
+                openai_res = client.chat.completions.create(
+                    model="gpt-4o-mini", # Ya "gpt-4" use karein
+                    messages=[{"role": "user", "content": user_query}]
+                )
+                st.success(openai_res.choices[0].message.content)
+            except Exception as e:
+                st.error(f"OpenAI Error: {e}")
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# ---------------- CHAT ----------------
-prompt = st.chat_input("Ask anything...")
-
-if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = offline_ai(prompt, st.session_state.chunks)
-
-        st.markdown(response)
-
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": response
-        })
+# Footer
+st.divider()
+st.caption("Powered by Nexus Flow Pro Engine")
