@@ -6,9 +6,10 @@ import faiss
 import numpy as np
 import urllib.parse
 import re
+import os
 import random
 
-# --- 1. PREMIUM GEMINI LIGHT THEME ---
+# --- 1. GEMINI PREMIUM UI ---
 st.set_page_config(page_title="Nexus Flow Ultra", page_icon="✨", layout="wide")
 
 st.markdown("""
@@ -29,28 +30,33 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INITIALIZATION ---
+# --- 2. KEYS & INITIALIZATION ---
 groq_key = st.secrets.get("GROQ_API_KEY")
 google_key = st.secrets.get("GOOGLE_API_KEY")
 
 if not groq_key or not google_key:
-    st.error("API Keys missing!")
+    st.error("API Keys missing in Secrets!")
     st.stop()
 
 client = Groq(api_key=groq_key)
 genai.configure(api_key=google_key)
 
-if "messages" not in st.session_state: st.session_state.messages = []
-if "db" not in st.session_state: st.session_state.db = None
+# --- 3. MEMORY & SESSION STATE ---
+if "messages" not in st.session_state:
+    st.session_state.messages = [] # Ye hai memory power
+if "db" not in st.session_state:
+    st.session_state.db = None
 
-# --- 3. SIDEBAR ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.markdown("<h3 style='color:#1a73e8; text-align:center;'>Nexus Hub ⚡</h3>", unsafe_allow_html=True)
-    if st.button("➕ Start New Conversation"):
+    if st.button("➕ New Chat (Clear Memory)"):
         st.session_state.messages = []
         st.session_state.db = None
         st.rerun()
+    
     st.markdown("---")
+    st.write("📂 **Knowledge Base**")
     uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
     if uploaded and st.button("🚀 Sync Brain"):
         text = ""
@@ -64,17 +70,19 @@ with st.sidebar:
         st.session_state.db, st.session_state.chunks = index, chunks
         st.success("Brain Synced!")
 
-# --- 4. CHAT DISPLAY ---
+# --- 5. CHAT DISPLAY ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
         if "image" in m and m["image"]:
             st.image(m["image"], use_container_width=True)
 
-# --- 5. CHAT LOGIC (Strict Language Mirroring) ---
+# --- 6. CHAT LOGIC ---
 if prompt := st.chat_input("Ask Gemini..."):
+    # User message save karna (Memory)
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
@@ -88,19 +96,22 @@ if prompt := st.chat_input("Ask Gemini..."):
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
-            # MANDATORY LANGUAGE LOCK & EMOJI RULES
+            # Instructions with Memory & Emojis
             sys_msg = f"""
             You are Nexus Flow Ultra. 
-            - STRICT LANGUAGE RULE: Detect user's language and reply ONLY in that language. If user speaks Japanese, reply 100% in Japanese. If Hindi/Hinglish, reply in Hindi/Hinglish.
+            - MEMORY: You MUST remember previous parts of this conversation.
+            - LANGUAGE: Reply strictly in the language of the user (Japanese/Hindi/Hinglish).
             - EMOJIS: Always use suitable emojis. 
-            - IMAGES: Use [GENERATE_IMAGE: highly descriptive English prompt] for visuals. Never show [GENERATE_IMAGE] tag in final output to user.
-            - LOGIC: Use <thinking> for reasoning.
+            - IMAGES: Use [GENERATE_IMAGE: descriptive prompt in English] for visuals.
             Context: {context}
             """
             
+            # Memory injection (Last 10 messages)
+            chat_history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-10:]]
+            
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "system", "content": sys_msg}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]],
+                messages=[{"role": "system", "content": sys_msg}] + chat_history,
                 stream=True
             )
 
@@ -109,22 +120,31 @@ if prompt := st.chat_input("Ask Gemini..."):
                     full_response += chunk.choices[0].delta.content
                     response_placeholder.markdown(full_response + "▌")
             
-            # --- PARSING LOGIC (Clean output) ---
+            # --- PARSING & FIXING ---
             final_text = full_response
             img_url = None
 
-            # Thinking Parser
             if "<thinking>" in full_response:
                 parts = full_response.split("</thinking>")
-                thought = parts[0].replace("<thinking>","").strip()
-                st.markdown(f'<div class="thinking-box">🔍 <b>Reasoning:</b><br>{thought}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="thinking-box">🔍 <b>Reasoning:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
                 final_text = parts[1].strip()
 
-            # Image Handler (Extract and Hide Tag)
             if "[GENERATE_IMAGE:" in final_text:
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
                 if match:
                     img_prompt = match.group(1).strip()
                     encoded_p = urllib.parse.quote(img_prompt)
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&nologo=true&seed={random.randint(0
-                    
+                    # FIXED Syntax Error below:
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
+                    final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
+
+            response_placeholder.markdown(final_text)
+            if img_url:
+                st.image(img_url, use_container_width=True)
+
+            # Assistant message save karna (Memory)
+            st.session_state.messages.append({"role": "assistant", "content": final_text, "image": img_url})
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+                
