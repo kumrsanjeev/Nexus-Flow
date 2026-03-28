@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from openai import OpenAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -8,24 +9,27 @@ import os
 import time
 
 # ---------------- PAGE ----------------
-st.set_page_config(page_title="Nexus Flow Auto AI 🤖", layout="wide")
+st.set_page_config(page_title="Nexus Flow Ultra AI 🤖", layout="wide")
 
-# ---------------- API ----------------
-api_key = st.secrets.get("GOOGLE_API_KEY")
+# ---------------- API KEYS ----------------
+GEMINI_KEY = st.secrets.get("GOOGLE_API_KEY")
+OPENAI_KEY = st.secrets.get("OPENAI_API_KEY")
 
-if not api_key:
-    st.error("⚠️ Add GOOGLE_API_KEY in secrets.toml")
-    st.stop()
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    os.environ["GOOGLE_API_KEY"] = GEMINI_KEY
 
-genai.configure(api_key=api_key)
-os.environ["GOOGLE_API_KEY"] = api_key
+openai_client = None
+if OPENAI_KEY:
+    openai_client = OpenAI(api_key=OPENAI_KEY)
 
-# ---------------- SMART MODEL LIST ----------------
-MODEL_LIST = [
+# ---------------- MODEL LIST ----------------
+GEMINI_MODELS = [
     "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-1.5-pro"
 ]
+
+OPENAI_MODEL = "gpt-4o-mini"
 
 # ---------------- PDF PROCESS ----------------
 def process_pdf(files):
@@ -41,29 +45,41 @@ def process_pdf(files):
     embeddings = GoogleGenerativeAIEmbeddings(model="embedding-001")
     return FAISS.from_texts(chunks, embeddings)
 
-# ---------------- SMART RESPONSE FUNCTION ----------------
-def generate_with_fallback(prompt):
-    for model_name in MODEL_LIST:
+# ---------------- MULTI AI FUNCTION ----------------
+def generate_response(prompt):
+    
+    # 🔥 1. TRY GEMINI FIRST
+    if GEMINI_KEY:
+        for model_name in GEMINI_MODELS:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text, f"Gemini ({model_name})"
+
+            except Exception as e:
+                error = str(e)
+
+                # quota → try next system
+                if "429" in error or "quota" in error.lower():
+                    break
+
+                if "404" in error:
+                    continue
+
+    # 🔥 2. FALLBACK TO OPENAI
+    if openai_client:
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            return response.text, model_name
+            res = openai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return res.choices[0].message.content, f"OpenAI ({OPENAI_MODEL})"
+
         except Exception as e:
-            error = str(e)
+            return f"❌ OpenAI Error: {str(e)}", "openai_error"
 
-            # quota error → wait and retry next
-            if "429" in error:
-                time.sleep(5)
-                continue
-
-            # model not found → try next
-            if "404" in error:
-                continue
-
-            # other error
-            continue
-
-    return "❌ All models failed. Try again later.", "none"
+    # 🔥 3. FINAL FAIL
+    return "❌ All AI services failed.\n\n👉 Check API keys or billing.", "none"
 
 # ---------------- SESSION ----------------
 if "messages" not in st.session_state:
@@ -88,8 +104,8 @@ with st.sidebar:
         st.rerun()
 
 # ---------------- UI ----------------
-st.title("🤖 Nexus Flow Auto AI")
-st.caption("Auto Model Switching + RAG System")
+st.title("🤖 Nexus Flow Ultra AI")
+st.caption("Gemini + OpenAI Auto Switching AI")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -112,7 +128,7 @@ if prompt:
                     context = "\n\n".join([doc.page_content for doc in docs])
 
                     final_prompt = f"""
-Use the context below to answer:
+Use this context to answer:
 
 {context}
 
@@ -121,17 +137,16 @@ Question: {prompt}
                 else:
                     final_prompt = prompt
 
-                # 🔥 SMART MODEL SWITCH
-                final_text, used_model = generate_with_fallback(final_prompt)
+                response, model_used = generate_response(final_prompt)
 
             except Exception as e:
-                final_text = f"❌ Error: {str(e)}"
-                used_model = "error"
+                response = f"❌ Error: {str(e)}"
+                model_used = "error"
 
-        st.markdown(final_text)
-        st.caption(f"⚙️ Model used: {used_model}")
+        st.markdown(response)
+        st.caption(f"⚙️ Model used: {model_used}")
 
         st.session_state.messages.append({
             "role": "assistant",
-            "content": final_text
+            "content": response
         })
