@@ -1,4 +1,3 @@
-
 import streamlit as st
 from groq import Groq
 import google.generativeai as genai
@@ -9,7 +8,7 @@ import urllib.parse
 import re
 import random
 
-# --- 1. PREMIUM GEMINI UI ---
+# --- 1. PREMIUM GEMINI LIGHT THEME ---
 st.set_page_config(page_title="Nexus Flow Ultra", page_icon="✨", layout="wide")
 
 st.markdown("""
@@ -30,12 +29,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API KEYS & CLIENTS ---
+# --- 2. INITIALIZATION ---
 groq_key = st.secrets.get("GROQ_API_KEY")
 google_key = st.secrets.get("GOOGLE_API_KEY")
 
 if not groq_key or not google_key:
-    st.error("API Keys missing! Check your Secrets.")
+    st.error("API Keys missing!")
     st.stop()
 
 client = Groq(api_key=groq_key)
@@ -44,16 +43,16 @@ genai.configure(api_key=google_key)
 if "messages" not in st.session_state: st.session_state.messages = []
 if "db" not in st.session_state: st.session_state.db = None
 
-# --- 3. SIDEBAR & PDF ENGINE ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.markdown("<h3 style='color:#1a73e8; text-align:center;'>Nexus Hub ⚡</h3>", unsafe_allow_html=True)
-    if st.button("➕ Clear & New Chat"):
+    if st.button("➕ Start New Conversation"):
         st.session_state.messages = []
         st.session_state.db = None
         st.rerun()
     st.markdown("---")
-    uploaded = st.file_uploader("Upload Knowledge (PDF)", type="pdf", accept_multiple_files=True)
-    if uploaded and st.button("🚀 Sync Knowledge"):
+    uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+    if uploaded and st.button("🚀 Sync Brain"):
         text = ""
         for f in uploaded:
             reader = PdfReader(f)
@@ -63,16 +62,16 @@ with st.sidebar:
         index = faiss.IndexFlatL2(len(embeddings[0]))
         index.add(np.array(embeddings).astype('float32'))
         st.session_state.db, st.session_state.chunks = index, chunks
-        st.success("Brain Synced! ✅")
+        st.success("Brain Synced!")
 
-# --- 4. CHAT INTERFACE ---
+# --- 4. CHAT DISPLAY ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
         if "image" in m and m["image"]:
             st.image(m["image"], use_container_width=True)
 
-# --- 5. CORE LOGIC ---
+# --- 5. CHAT LOGIC (Strict Language Mirroring) ---
 if prompt := st.chat_input("Ask Gemini..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
@@ -82,18 +81,19 @@ if prompt := st.chat_input("Ask Gemini..."):
         full_response = ""
         
         try:
-            # Context retrieval
+            # Context search
             context = ""
             if st.session_state.db:
                 q_emb = genai.embed_content(model="models/embedding-001", content=prompt, task_type="retrieval_query")['embedding']
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
+            # MANDATORY LANGUAGE LOCK & EMOJI RULES
             sys_msg = f"""
             You are Nexus Flow Ultra. 
-            - LANGUAGE: Reply in the EXACT language of the user. 
-            - EMOJIS: Use plenty of relevant emojis. 
-            - IMAGES: Use [GENERATE_IMAGE: prompt in English] for visual requests. 
+            - STRICT LANGUAGE RULE: Detect user's language and reply ONLY in that language. If user speaks Japanese, reply 100% in Japanese. If Hindi/Hinglish, reply in Hindi/Hinglish.
+            - EMOJIS: Always use suitable emojis. 
+            - IMAGES: Use [GENERATE_IMAGE: highly descriptive English prompt] for visuals. Never show [GENERATE_IMAGE] tag in final output to user.
             - LOGIC: Use <thinking> for reasoning.
             Context: {context}
             """
@@ -109,32 +109,22 @@ if prompt := st.chat_input("Ask Gemini..."):
                     full_response += chunk.choices[0].delta.content
                     response_placeholder.markdown(full_response + "▌")
             
-            # --- ROBUST PARSER ---
+            # --- PARSING LOGIC (Clean output) ---
             final_text = full_response
-            if "<thinking>" in full_response:
-                try:
-                    parts = full_response.split("</thinking>")
-                    thought = parts[0].replace("<thinking>","").strip()
-                    st.markdown(f'<div class="thinking-box">🔍 <b>Nexus Reasoning:</b><br>{thought}</div>', unsafe_allow_html=True)
-                    final_text = parts[1].strip()
-                except:
-                    final_text = full_response.replace("<thinking>","").replace("</thinking>","")
-
-            response_placeholder.markdown(final_text)
-            
-            # --- IMAGE HANDLER (Fixing the 🖼️0 Error) ---
             img_url = None
+
+            # Thinking Parser
+            if "<thinking>" in full_response:
+                parts = full_response.split("</thinking>")
+                thought = parts[0].replace("<thinking>","").strip()
+                st.markdown(f'<div class="thinking-box">🔍 <b>Reasoning:</b><br>{thought}</div>', unsafe_allow_html=True)
+                final_text = parts[1].strip()
+
+            # Image Handler (Extract and Hide Tag)
             if "[GENERATE_IMAGE:" in final_text:
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
                 if match:
                     img_prompt = match.group(1).strip()
-                    # Final URL generation logic
-                    encoded_prompt = urllib.parse.quote(img_prompt)
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
-                    st.image(img_url, use_container_width=True)
-
-            st.session_state.messages.append({"role": "assistant", "content": final_text, "image": img_url})
-
-        except Exception as e:
-            st.error(f"Error: {e} ❌")
-          
+                    encoded_p = urllib.parse.quote(img_prompt)
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&nologo=true&seed={random.randint(0
+                    
