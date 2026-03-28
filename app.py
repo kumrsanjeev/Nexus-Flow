@@ -1,4 +1,5 @@
 import streamlit as st
+from groq import Groq
 import google.generativeai as genai
 from pypdf import PdfReader
 import faiss
@@ -7,108 +8,114 @@ import urllib.parse
 import re
 import os
 
-# --- 1. CONFIG & STYLING ---
-st.set_page_config(page_title="Nexus Flow AI", page_icon="🤖", layout="wide")
+# --- 1. NEXUS CONFIG ---
+st.set_page_config(page_title="Nexus Flow Ultra 🚀", layout="wide")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0E1117; color: #FFFFFF; }
-    .thinking-box { background-color: #1a1c23; border-left: 4px solid #00ffcc; padding: 10px; margin: 10px 0; color: #00ffcc; font-family: monospace; border-radius: 5px; }
+    .stApp { background-color: #0B0E14; color: #E0E0E0; }
+    .stChatMessage { border-radius: 15px; border: 1px solid #1E293B; margin: 10px 0; }
+    .thinking-box { background-color: #161B22; border-left: 4px solid #00F5FF; padding: 12px; border-radius: 5px; color: #00F5FF; font-family: monospace; font-size: 0.9em; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API SETUP ---
-api_key = st.secrets.get("GOOGLE_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
-else:
-    st.error("⚠️ API Key missing! Add GOOGLE_API_KEY in Streamlit Secrets.")
+# --- 2. API KEYS SETUP ---
+groq_key = st.secrets.get("GROQ_API_KEY")
+google_key = st.secrets.get("GOOGLE_API_KEY")
+
+if not groq_key or not google_key:
+    st.error("⚠️ Keys Missing! Add GROQ_API_KEY and GOOGLE_API_KEY in Secrets.")
     st.stop()
 
-# --- 3. CORE LOGIC (PDF & Embeddings without LangChain) ---
-def get_pdf_text(pdf_files):
+# Initialize Clients
+groq_client = Groq(api_key=groq_key)
+genai.configure(api_key=google_key)
+
+# --- 3. RAG ENGINE (Google Embeddings + FAISS) ---
+def process_knowledge(pdf_files):
     text = ""
     for pdf in pdf_files:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
+        reader = PdfReader(pdf)
+        for page in reader.pages:
             text += page.extract_text() or ""
-    return text
-
-def create_vector_db(text):
-    # Text Splitter Logic
+    
     chunks = [text[i:i+1000] for i in range(0, len(text), 800)]
+    # Google is very stable for embeddings
+    embeddings = [genai.embed_content(model="models/embedding-001", content=c, task_type="retrieval_document")['embedding'] for c in chunks]
     
-    # Get Embeddings using Pure Gemini
-    embeddings = []
-    for chunk in chunks:
-        result = genai.embed_content(model="models/embedding-001", content=chunk, task_type="retrieval_document")
-        embeddings.append(result['embedding'])
-    
-    # FAISS Index
-    dimension = len(embeddings[0])
-    index = faiss.IndexFlatL2(dimension)
+    index = faiss.IndexFlatL2(len(embeddings[0]))
     index.add(np.array(embeddings).astype('float32'))
     return index, chunks
-
-def search_docs(query, index, chunks):
-    query_emb = genai.embed_content(model="models/embedding-001", content=query, task_type="retrieval_query")['embedding']
-    D, I = index.search(np.array([query_emb]).astype('float32'), k=3)
-    context = "\n".join([chunks[i] for i in I[0] if i < len(chunks)])
-    return context
 
 # --- 4. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "index" not in st.session_state:
-    st.session_state.index = None
-    st.session_state.chunks = None
+if "nexus_brain" not in st.session_state:
+    st.session_state.nexus_brain = None
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
-    st.title("📂 Knowledge Base")
-    uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
-    if uploaded and st.button("Sync Documents"):
-        with st.spinner("Learning..."):
-            raw_text = get_pdf_text(uploaded)
-            st.session_state.index, st.session_state.chunks = create_vector_db(raw_text)
-            st.success("Synced Successfully!")
-    if st.button("🗑️ Clear Chat"):
+    st.title("⚡ Nexus Hub")
+    st.caption("Powered by Groq (Llama 3 70B)")
+    files = st.file_uploader("Upload Study PDFs", type="pdf", accept_multiple_files=True)
+    if files and st.button("Sync Knowledge"):
+        with st.spinner("Nexus is absorbing data..."):
+            st.session_state.nexus_brain, st.session_state.chunks = process_knowledge(files)
+            st.success("Brain Synced!")
+    
+    if st.button("🗑️ Reset All"):
         st.session_state.messages = []
         st.rerun()
 
-# --- 6. MAIN UI & CHAT ---
-st.title("Nexus Flow AI 🤖")
+# --- 6. CHAT INTERFACE ---
+st.title("Nexus Flow Ultra 🚀")
 
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
         if "image" in m: st.image(m["image"])
 
-if prompt := st.chat_input("How can I help you today?"):
+# Response Logic
+if prompt := st.chat_input("Ask Nexus..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
         try:
-            # System Instruction for Image & Thinking
-            sys_inst = "You are Nexus Flow AI. Use Hinglish. For images respond only with [GENERATE_IMAGE: prompt]. Use <thinking> for logic."
-            
+            # RAG Search
             context = ""
-            if st.session_state.index:
-                context = search_docs(prompt, st.session_state.index, st.session_state.chunks)
+            if st.session_state.nexus_brain:
+                q_emb = genai.embed_content(model="models/embedding-001", content=prompt, task_type="retrieval_query")['embedding']
+                D, I = st.session_state.nexus_brain.search(np.array([q_emb]).astype('float32'), k=3)
+                context = "\n".join([st.session_state.chunks[i] for i in I[0] if i < len(st.session_state.chunks)])
+
+            # Groq Llama 3 Call
+            system_prompt = """
+            You are Nexus Flow Ultra. 
+            - LOGIC: For complex math/code, use <thinking> step-by-step reasoning </thinking> tags.
+            - IMAGES: For image requests, use ONLY: [GENERATE_IMAGE: prompt in English].
+            - LANGUAGE: Hinglish.
+            - CONTEXT: Use provided context for answers if available.
+            """
             
-            model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=sys_inst)
-            full_prompt = f"Context: {context}\n\nUser Question: {prompt}" if context else prompt
+            completion = groq_client.chat.completions.create(
+                model="llama3-70b-8192",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Context: {context}\n\nQuestion: {prompt}"}
+                ],
+                temperature=0.7,
+            )
             
-            res = model.generate_content(full_prompt).text
+            raw_res = completion.choices[0].message.content
             
             # Parsers
-            final_text = res
+            final_text = raw_res
             img_url = None
 
-            if "<thinking>" in res:
-                parts = res.split("</thinking>")
-                st.markdown(f'<div class="thinking-box"><b>🧠 Logic:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
+            if "<thinking>" in raw_res:
+                parts = raw_res.split("</thinking>")
+                st.markdown(f'<div class="thinking-box">🔍 <b>Nexus Reasoning:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
                 final_text = parts[1].strip()
 
             if "[GENERATE_IMAGE:" in final_text:
@@ -121,10 +128,11 @@ if prompt := st.chat_input("How can I help you today?"):
             st.markdown(final_text)
             if img_url: st.image(img_url)
 
-            msg = {"role": "assistant", "content": final_text}
-            if img_url: msg["image"] = img_url
-            st.session_state.messages.append(msg)
-            
+            # Save History
+            msg_data = {"role": "assistant", "content": final_text}
+            if img_url: msg_data["image"] = img_url
+            st.session_state.messages.append(msg_data)
+
         except Exception as e:
-            st.error(f"Error: {str(e)}")
+            st.error(f"Nexus Sync Error: {str(e)}")
             
