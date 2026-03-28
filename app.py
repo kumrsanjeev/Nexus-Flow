@@ -7,19 +7,19 @@ from pypdf import PdfReader
 import os
 
 # ---------------- PAGE SETUP ----------------
-st.set_page_config(page_title="Nexus Flow Ultimate 🤖", layout="wide")
+st.set_page_config(page_title="Nexus Flow 🤖", layout="wide")
 
 # ---------------- API KEY ----------------
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
 if not api_key:
-    st.error("⚠️ Please add GOOGLE_API_KEY in secrets.toml")
+    st.error("⚠️ Add GOOGLE_API_KEY in secrets.toml")
     st.stop()
 
 genai.configure(api_key=api_key)
 os.environ["GOOGLE_API_KEY"] = api_key
 
-# ---------------- PDF PROCESS FUNCTION ----------------
+# ---------------- PDF PROCESS ----------------
 def process_pdf(files):
     text = ""
 
@@ -28,24 +28,23 @@ def process_pdf(files):
         for page in reader.pages:
             text += page.extract_text() or ""
 
-    # Split text into chunks
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
+
     chunks = splitter.split_text(text)
 
-    # ✅ FIXED EMBEDDING MODEL
+    # ✅ FIXED EMBEDDING
     embeddings = GoogleGenerativeAIEmbeddings(
         model="embedding-001"
     )
 
-    # Create vector DB
     vector_db = FAISS.from_texts(chunks, embeddings)
 
     return vector_db
 
-# ---------------- SESSION STATE ----------------
+# ---------------- SESSION ----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -65,26 +64,24 @@ with st.sidebar:
     if files and st.button("Process PDFs"):
         with st.spinner("Processing PDFs..."):
             st.session_state.vector_db = process_pdf(files)
-        st.success("✅ PDFs processed successfully!")
+        st.success("✅ PDFs Ready!")
 
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
 
 # ---------------- MAIN UI ----------------
-st.title("🤖 Nexus Flow Ultimate")
-st.caption("AI Chat + PDF RAG System")
+st.title("🤖 Nexus Flow AI")
+st.caption("Gemini 1.5 Flash + PDF RAG")
 
-# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# ---------------- CHAT INPUT ----------------
+# ---------------- CHAT ----------------
 prompt = st.chat_input("Ask anything...")
 
 if prompt:
-    # Save user message
     st.session_state.messages.append({
         "role": "user",
         "content": prompt
@@ -114,10 +111,14 @@ Question:
                 else:
                     final_prompt = prompt
 
-                # ✅ FIXED LATEST MODEL
-                model = genai.GenerativeModel("gemini-2.0-flash")
+                # ✅ FIXED GEMINI 1.5 FLASH
+                model = genai.GenerativeModel(
+                    model_name="gemini-1.5-flash"
+                )
 
-                response = model.generate_content(final_prompt)
+                response = model.generate_content(
+                    contents=final_prompt
+                )
 
                 final_text = response.text
 
@@ -126,7 +127,6 @@ Question:
 
         st.markdown(final_text)
 
-        # Save assistant message
         st.session_state.messages.append({
             "role": "assistant",
             "content": final_text
