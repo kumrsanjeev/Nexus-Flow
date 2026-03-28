@@ -9,7 +9,7 @@ import re
 import os
 import random
 
-# --- 1. GEMINI PREMIUM UI ---
+# --- 1. CLEAN GEMINI INTERFACE ---
 st.set_page_config(page_title="Nexus Flow Ultra", page_icon="✨", layout="wide")
 
 st.markdown("""
@@ -30,7 +30,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. KEYS & INITIALIZATION ---
+# --- 2. API KEYS & INITIALIZATION ---
 groq_key = st.secrets.get("GROQ_API_KEY")
 google_key = st.secrets.get("GOOGLE_API_KEY")
 
@@ -41,24 +41,23 @@ if not groq_key or not google_key:
 client = Groq(api_key=groq_key)
 genai.configure(api_key=google_key)
 
-# --- 3. MEMORY & SESSION STATE ---
+# --- 3. PERSISTENT MEMORY ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [] # Ye hai memory power
+    st.session_state.messages = []
 if "db" not in st.session_state:
     st.session_state.db = None
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.markdown("<h3 style='color:#1a73e8; text-align:center;'>Nexus Hub ⚡</h3>", unsafe_allow_html=True)
-    if st.button("➕ New Chat (Clear Memory)"):
+    if st.button("➕ Start New Chat"):
         st.session_state.messages = []
         st.session_state.db = None
         st.rerun()
     
     st.markdown("---")
-    st.write("📂 **Knowledge Base**")
     uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
-    if uploaded and st.button("🚀 Sync Brain"):
+    if uploaded and st.button("🚀 Sync Knowledge"):
         text = ""
         for f in uploaded:
             reader = PdfReader(f)
@@ -77,9 +76,8 @@ for m in st.session_state.messages:
         if "image" in m and m["image"]:
             st.image(m["image"], use_container_width=True)
 
-# --- 6. CHAT LOGIC ---
+# --- 6. CORE CHAT LOGIC (Strict Language Mirroring) ---
 if prompt := st.chat_input("Ask Gemini..."):
-    # User message save karna (Memory)
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -89,29 +87,29 @@ if prompt := st.chat_input("Ask Gemini..."):
         full_response = ""
         
         try:
-            # Context search
+            # Context retrieval
             context = ""
             if st.session_state.db:
                 q_emb = genai.embed_content(model="models/embedding-001", content=prompt, task_type="retrieval_query")['embedding']
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
-            # Instructions with Memory & Emojis
+            # MANDATORY LANGUAGE LOCK RULES
             sys_msg = f"""
             You are Nexus Flow Ultra. 
-            - MEMORY: You MUST remember previous parts of this conversation.
-            - LANGUAGE: Reply strictly in the language of the user (Japanese/Hindi/Hinglish).
-            - EMOJIS: Always use suitable emojis. 
-            - IMAGES: Use [GENERATE_IMAGE: descriptive prompt in English] for visuals.
+            - LANGUAGE RULE: You MUST detect the language of the user's input and reply ONLY in that language. 
+              (If user says "Hi" after a Japanese chat, reply in Japanese: "こんにちは！").
+            - MEMORY: Remember previous conversation details.
+            - IMAGES: Use [GENERATE_IMAGE: descriptive English prompt] for photos.
+            - EMOJIS: Use relevant emojis.
             Context: {context}
             """
             
-            # Memory injection (Last 10 messages)
-            chat_history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-10:]]
+            chat_hist = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-10:]]
             
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "system", "content": sys_msg}] + chat_history,
+                messages=[{"role": "system", "content": sys_msg}] + chat_hist,
                 stream=True
             )
 
@@ -120,31 +118,24 @@ if prompt := st.chat_input("Ask Gemini..."):
                     full_response += chunk.choices[0].delta.content
                     response_placeholder.markdown(full_response + "▌")
             
-            # --- PARSING & FIXING ---
+            # --- IMAGE & LOGIC PARSER ---
             final_text = full_response
             img_url = None
 
-            if "<thinking>" in full_response:
-                parts = full_response.split("</thinking>")
-                st.markdown(f'<div class="thinking-box">🔍 <b>Reasoning:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
-                final_text = parts[1].strip()
-
-            if "[GENERATE_IMAGE:" in final_text:
-                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
+            # Hide Generate Tag from User
+            if "[GENERATE_IMAGE:" in full_response:
+                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_response)
                 if match:
                     img_prompt = match.group(1).strip()
                     encoded_p = urllib.parse.quote(img_prompt)
-                    # FIXED Syntax Error below:
                     img_url = f"https://image.pollinations.ai/prompt/{encoded_p}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
-                    final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
+                    final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', full_response).strip()
 
             response_placeholder.markdown(final_text)
             if img_url:
                 st.image(img_url, use_container_width=True)
 
-            # Assistant message save karna (Memory)
             st.session_state.messages.append({"role": "assistant", "content": final_text, "image": img_url})
 
         except Exception as e:
             st.error(f"Error: {e}")
-                
