@@ -1,4 +1,6 @@
 streamlit
 google-generativeai
+groq
 faiss-cpu
 pypdf
+numpy
