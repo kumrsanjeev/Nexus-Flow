@@ -6,44 +6,51 @@ import faiss
 import numpy as np
 import urllib.parse
 import re
-import os
+import time
 
-# --- 1. GEMINI LIGHT THEME CONFIG ---
-st.set_page_config(page_title="Nexus Flow Ultra", page_icon="✨", layout="wide")
+# --- 1. PREMIUM CHATGPT/GEMINI UI ---
+st.set_page_config(page_title="Nexus Flow Ultra", page_icon="🤖", layout="wide")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #ffffff; color: #1f1f1f; }
-    [data-testid="stSidebar"] { background-color: #f0f4f9 !important; border-right: none; }
-    .stChatMessage { background-color: transparent !important; border: none !important; padding: 10px 0 !important; }
+    /* ChatGPT Light/Clean Theme */
+    .stApp { background-color: #ffffff; color: #37352f; }
+    [data-testid="stSidebar"] { background-color: #f7f7f8 !important; border-right: 1px solid #d1d5db; }
     
+    /* Message Bubbles */
+    .stChatMessage {
+        border-radius: 12px;
+        padding: 1.5rem !important;
+        margin-bottom: 1rem;
+        line-height: 1.6;
+    }
+    
+    /* AI Response Formatting */
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #111827; font-weight: 700; margin-top: 1rem; }
+    .stMarkdown p { font-size: 1.1rem; color: #374151; }
+    
+    /* Suggested Pill Buttons */
     .stButton>button {
         background-color: #ffffff !important;
-        color: #444746 !important;
-        border: 1px solid #c4c7c5 !important;
-        border-radius: 25px !important;
-        padding: 8px 20px !important;
+        color: #4b5563 !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 20px !important;
+        padding: 0.5rem 1.2rem !important;
         font-weight: 500 !important;
-        transition: 0.3s;
+        transition: 0.2s;
     }
-    .stButton>button:hover { background-color: #f1f3f4 !important; border-color: #1a73e8 !important; }
+    .stButton>button:hover { background-color: #f9fafb !important; border-color: #1a73e8 !important; color: #1a73e8 !important; }
 
-    .thinking-box { 
-        background-color: #f0f4f9; 
-        border-radius: 12px; 
-        padding: 15px; 
-        color: #0b57d0; 
-        border-left: 4px solid #0b57d0; 
-        margin: 10px 0; 
-        font-size: 0.9rem; 
-    }
-    .gemini-greeting { font-size: 2.8rem; font-weight: 500; color: #1f1f1f; margin-top: 50px; }
-    .gemini-subtitle { font-size: 2.5rem; font-weight: 500; color: #c4c7c5; margin-bottom: 30px; }
-    .stChatInput { border-radius: 30px !important; background-color: #f0f4f9 !important; border: none !important; }
+    /* Input Box Styling */
+    .stChatInputContainer { padding-bottom: 2rem; }
+    .stChatInput { border-radius: 26px !important; border: 1px solid #e5e7eb !important; background: #fff !important; }
+
+    /* Custom Header */
+    .main-header { font-size: 2.5rem; font-weight: 600; text-align: center; margin-top: 2rem; color: #1f2937; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API INITIALIZATION ---
+# --- 2. INITIALIZATION ---
 groq_key = st.secrets.get("GROQ_API_KEY")
 google_key = st.secrets.get("GOOGLE_API_KEY")
 
@@ -59,14 +66,14 @@ if "db" not in st.session_state: st.session_state.db = None
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
-    st.markdown("<h3 style='color:#1a73e8;'>Nexus Menu</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;'>Nexus Hub</h3>", unsafe_allow_html=True)
     if st.button("➕ New Chat"):
         st.session_state.messages = []
         st.session_state.db = None
         st.rerun()
     st.markdown("---")
     uploaded = st.file_uploader("Upload Study PDFs", type="pdf", accept_multiple_files=True)
-    if uploaded and st.button("Sync Brain"):
+    if uploaded and st.button("🚀 Sync Brain"):
         text = ""
         for f in uploaded:
             reader = PdfReader(f)
@@ -76,21 +83,23 @@ with st.sidebar:
         index = faiss.IndexFlatL2(len(embeddings[0]))
         index.add(np.array(embeddings).astype('float32'))
         st.session_state.db, st.session_state.chunks = index, chunks
-        st.success("Synced! ✅")
+        st.success("Docs Synced! ✅")
 
-# --- 4. HOME PAGE ---
+# --- 4. HOME PAGE (ChatGPT Style) ---
 if not st.session_state.messages:
-    st.markdown("<div class='gemini-greeting'>Hi Sanjeev</div>", unsafe_allow_html=True)
-    st.markdown("<div class='gemini-subtitle'>Where should we start?</div>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([1, 1])
+    st.markdown("<div class='main-header'>What can I help with?</div>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🖼️ Create an image of an AI"):
-            st.session_state.messages.append({"role":"user", "content":"Create a high-quality image of a futuristic AI robot 🤖"})
+        if st.button("🖼️ Create Image"):
+            st.session_state.messages.append({"role":"user", "content":"Create a beautiful 3D image of a futuristic computer lab"})
             st.rerun()
     with col2:
-        if st.button("📝 SAT Logic Challenge"):
-            st.session_state.messages.append({"role":"user", "content":"Ask me a tough SAT math logic question 📝"})
+        if st.button("📝 Write Essay"):
+            st.session_state.messages.append({"role":"user", "content":"Write a professional essay on the Importance of AI in Education"})
+            st.rerun()
+    with col3:
+        if st.button("🧠 SAT Practice"):
+            st.session_state.messages.append({"role":"user", "content":"Give me a tough SAT math logic question"})
             st.rerun()
 else:
     for m in st.session_state.messages:
@@ -99,12 +108,15 @@ else:
             if "image" in m and m["image"]:
                 st.image(m["image"], use_container_width=True)
 
-# --- 5. CHAT LOGIC ---
-if prompt := st.chat_input("Ask Gemini"):
+# --- 5. CHAT LOGIC WITH STREAMING ---
+if prompt := st.chat_input("Message Nexus..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        
         try:
             context = ""
             if st.session_state.db:
@@ -112,44 +124,37 @@ if prompt := st.chat_input("Ask Gemini"):
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
-            sys_msg = f"""You are Nexus Flow Ultra (Gemini Clone). 
-            - IDENTITY: You are Sanjeev's AI partner. 
-            - LANGUAGE: Always reply in the user's language (Hindi/Hinglish/English).
-            - IMAGE: ONLY use [GENERATE_IMAGE: descriptive prompt in English] if the user EXPLICITLY asks to 'create', 'generate', or 'draw' an image. Do NOT use it for normal questions like 'Who is PM'.
-            - PM of INDIA: If asked, say Narendra Modi directly.
-            - LOGIC: Use <thinking> for reasoning.
+            sys_msg = f"""You are Nexus Flow Ultra. 
+            - FORMATTING: Answer like ChatGPT. Use bold headings, bullet points, and clean paragraphs. 
+            - LANGUAGE: Reply in the user's language.
+            - IMAGES: Use [GENERATE_IMAGE: prompt in English] only if asked to create/draw.
             Context: {context}"""
             
-            response = client.chat.completions.create(
+            # Using Llama-3.3 for high-quality logic
+            completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "system", "content": sys_msg}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]]
+                messages=[{"role": "system", "content": sys_msg}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]],
+                stream=True # Streaming ON
             )
+
+            for chunk in completion:
+                if chunk.choices[0].delta.content:
+                    full_response += chunk.choices[0].delta.content
+                    response_placeholder.markdown(full_response + "▌")
             
-            raw_res = response.choices[0].message.content
-            final_text, img_url = raw_res, None
-
-            # Robust Safe Parser
-            if "<thinking>" in raw_res and "</thinking>" in raw_res:
-                parts = raw_res.split("</thinking>")
-                thought = parts[0].replace("<thinking>","").strip()
-                st.markdown(f'<div class="thinking-box">🔍 <b>Thinking Process:</b><br>{thought}</div>', unsafe_allow_html=True)
-                final_text = parts[1].strip()
-            else:
-                final_text = raw_res.replace("<thinking>","").replace("</thinking>","").strip()
-
-            # Image Detection Fix
-            if "[GENERATE_IMAGE:" in final_text:
-                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
+            # Final Rendering without cursor
+            response_placeholder.markdown(full_response)
+            
+            # Parsing Image if any
+            img_url = None
+            if "[GENERATE_IMAGE:" in full_response:
+                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_response)
                 if match:
                     p_str = match.group(1).strip()
                     img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(p_str)}?width=1024&height=1024&nologo=true&seed={np.random.randint(10000)}"
-                    final_text = f"🎨 **Image Generated for:** {p_str}"
+                    st.image(img_url, use_container_width=True)
 
-            st.markdown(final_text)
-            if img_url: 
-                st.image(img_url, use_container_width=True)
-            
-            st.session_state.messages.append({"role": "assistant", "content": final_text, "image": img_url} if img_url else {"role": "assistant", "content": final_text})
+            st.session_state.messages.append({"role": "assistant", "content": full_response, "image": img_url})
 
         except Exception as e:
             st.error(f"Error: {e}")
