@@ -9,7 +9,7 @@ import re
 import random
 import time
 
-# --- 1. PREMIUM GEMINI INTERFACE ---
+# --- 1. MINIMALIST GEMINI UI ---
 st.set_page_config(page_title="Nexus Flow Ultra", page_icon="🤖", layout="wide")
 
 st.markdown("""
@@ -18,12 +18,12 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #f0f4f9 !important; border-right: none; }
     .stChatMessage { background-color: transparent !important; border: none !important; padding: 10px 0 !important; }
     
-    /* Clean Greeting Style */
-    .gemini-greeting { font-size: 3rem; font-weight: 500; color: #1f1f1f; margin-top: 60px; text-align: center; }
-    .gemini-subtitle { font-size: 2.8rem; font-weight: 500; color: #c4c7c5; margin-bottom: 50px; text-align: center; }
+    /* Clean Center Greeting */
+    .gemini-greeting { font-size: 3.2rem; font-weight: 500; color: #1f1f1f; margin-top: 100px; text-align: center; }
+    .gemini-subtitle { font-size: 3rem; font-weight: 500; color: #c4c7c5; margin-bottom: 50px; text-align: center; }
     
-    .thinking-box { background-color: #f0f7ff; border-radius: 12px; padding: 15px; color: #0056b3; border-left: 5px solid #0056b3; margin: 10px 0; }
-    .stChatInput { border-radius: 30px !important; background-color: #f0f4f9 !important; border: none !important; }
+    .thinking-box { background-color: #f8f9fa; border-radius: 10px; padding: 15px; color: #444746; border-left: 4px solid #1a73e8; margin: 10px 0; font-size: 0.9rem; }
+    .stChatInput { border-radius: 28px !important; background-color: #f0f4f9 !important; border: 1px solid #e5e7eb !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -38,12 +38,12 @@ if "messages" not in st.session_state: st.session_state.messages = []
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
-    st.markdown("<h3 style='color:#1a73e8; text-align:center;'>Nexus Hub ⚡</h3>", unsafe_allow_html=True)
-    if st.button("➕ New Chat"):
+    st.markdown("<h3 style='color:#1a73e8; text-align:center;'>Nexus Hub</h3>", unsafe_allow_html=True)
+    if st.button("➕ New Conversation"):
         st.session_state.messages = []
         st.rerun()
 
-# --- 4. GEMINI HOME PAGE ---
+# --- 4. HOME PAGE ---
 if not st.session_state.messages:
     st.markdown("<div class='gemini-greeting'>Hello Sanjeev</div>", unsafe_allow_html=True)
     st.markdown("<div class='gemini-subtitle'>How can I help you?</div>", unsafe_allow_html=True)
@@ -54,7 +54,7 @@ else:
             if "image" in m and m["image"]:
                 st.image(m["image"], use_container_width=True)
 
-# --- 5. CHAT ENGINE (Mirroring + Image) ---
+# --- 5. CHAT ENGINE (Strict & Minimal) ---
 if prompt := st.chat_input("Message Nexus..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
@@ -64,20 +64,20 @@ if prompt := st.chat_input("Message Nexus..."):
         full_response = ""
         
         try:
-            # STRICT Mirroring & Visual Rules
+            # STRICT Minimalist Rules
             sys_msg = """
             You are Nexus Flow Ultra. 
-            - LANGUAGE MIRRORING: Always reply in the user's language (Hinglish/Hindi/English). 
-            - EMOJIS: Use emojis in every single reply. 🚀✨
-            - IMAGE GENERATION: If asked for an image, reply with a short confirmation in user's language AND the tag: [GENERATE_IMAGE: descriptive English prompt].
-            - DO NOT say "I am a text model".
+            - EMOJIS: Use very few, only if necessary. Keep it professional.
+            - LANGUAGE: Match the user's language (Hinglish/Hindi/English). 
+            - IMAGES: Reply with a brief confirmation and ONLY the tag: [GENERATE_IMAGE: descriptive English prompt].
+            - FORMATTING: Use clean headings and bullet points.
             """
             
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": sys_msg}] + st.session_state.messages[-8:],
                 stream=True,
-                temperature=0.8
+                temperature=0.7
             )
 
             for chunk in completion:
@@ -89,32 +89,33 @@ if prompt := st.chat_input("Message Nexus..."):
             final_text = full_response
             img_url = None
 
-            # 1. Thinking Logic Box (if any)
+            # Thinking Parser
             if "<thinking>" in full_response:
                 parts = full_response.split("</thinking>")
-                st.markdown(f'<div class="thinking-box">🔍 <b>Thinking:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="thinking-box"><b>Reasoning:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
                 final_text = parts[-1].strip()
 
-            # 2. Image Logic (Direct Show & Hide Tag)
+            # Image Direct Logic
             if "[GENERATE_IMAGE:" in final_text:
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
                 if match:
                     img_prompt = match.group(1).strip()
-                    # CLEANING PROMPT
+                    # Clean and Encode URL
                     clean_p = re.sub(r'[^a-zA-Z0-9\s]', '', img_prompt)
                     encoded = urllib.parse.quote(clean_p)
-                    # UNIVERSAL STABLE LINK
-                    seed = random.randint(1, 999999)
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={seed}"
-                    # HIDE THE TAG FROM USER
+                    # Use unique seed for fresh generation
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={random.randint(1, 999999)}"
+                    # REMOVE TAG FROM CHAT OUTPUT
                     final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
+                    if not final_text: final_text = "Generated your requested image:"
 
             response_placeholder.markdown(final_text)
             if img_url: 
-                time.sleep(1) # Wait for server
+                time.sleep(1) # Ensuring server side sync
                 st.image(img_url, use_container_width=True)
             
             st.session_state.messages.append({"role": "assistant", "content": final_text, "image": img_url})
 
         except Exception as e:
             st.error(f"Error: {e}")
+            
