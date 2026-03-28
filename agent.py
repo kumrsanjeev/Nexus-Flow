@@ -8,69 +8,65 @@ from pypdf import PdfReader
 import os
 
 # --- 1. PAGE SETUP ---
-st.set_page_config(page_title="Nexus Flow Pro: RAG Edition ⚡", layout="wide")
-
-# Custom Dark Theme CSS
-st.markdown("""
-    <style>
-    .stApp { background-color: #0E1117; color: #FFFFFF; }
-    .stChatMessage { border-radius: 15px; border: 1px solid #1E1E1E; }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(page_title="Nexus Flow Pro 🤖", layout="wide")
 
 # --- 2. API KEY SETUP ---
+# Settings > Secrets mein GOOGLE_API_KEY hona zaroori hai
 api_key = st.secrets.get("GOOGLE_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
     os.environ["GOOGLE_API_KEY"] = api_key
 else:
-    st.error("⚠️ Sanjeev, API Key missing in Secrets!")
+    st.error("⚠️ API Key missing! Check Secrets.")
     st.stop()
 
-# --- 3. RAG ENGINE ---
+# --- 3. RAG CORE FUNCTIONS ---
 def process_pdf(pdf_files):
     text = ""
     for pdf in pdf_files:
         pdf_reader = PdfReader(pdf)
         for page in pdf_reader.pages:
-            text += page.extract_text()
+            text += page.extract_text() or ""
     
+    # Text ko small chunks mein divide karna (RAG Process)
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_text(text)
     
+    # Google Embeddings model ka use karna
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vector_db = FAISS.from_texts(chunks, embeddings)
     return vector_db
 
-# --- 4. INITIALIZE SESSION STATE ---
+# --- 4. SESSION STATE INITIALIZATION ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "vector_db" not in st.session_state:
     st.session_state.vector_db = None
 
-# --- 5. SIDEBAR ---
+# --- 5. SIDEBAR (The Knowledge Center) ---
 with st.sidebar:
-    st.title("🧠 Knowledge Base")
-    uploaded_files = st.file_uploader("Upload SAT/Editing PDFs", type="pdf", accept_multiple_files=True)
+    st.title("📂 Knowledge Base")
+    uploaded_files = st.file_uploader("Upload PDFs (SAT/Code/Notes)", type="pdf", accept_multiple_files=True)
     
-    if uploaded_files and st.button("Train Nexus Flow"):
-        with st.spinner("Learning from documents..."):
+    if uploaded_files and st.button("Sync Documents"):
+        with st.spinner("Learning..."):
             st.session_state.vector_db = process_pdf(uploaded_files)
-            st.success("I'm now smarter!")
+            st.success("Documents Synced!")
 
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
 
-# --- 6. CHAT DISPLAY ---
+# --- 6. MAIN UI ---
 st.title("Nexus Flow Pro 🤖")
+st.caption("Advanced Generic AI with PDF Memory")
 
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-# --- 7. RESPONSE LOGIC ---
-if prompt := st.chat_input("Ask anything"):
+# --- 7. SMART CHAT LOGIC ---
+if prompt := st.chat_input("Ask me anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -79,7 +75,7 @@ if prompt := st.chat_input("Ask anything"):
         with st.status("🔍 Nexus Flow is Analyzing...", expanded=False) as status:
             try:
                 if st.session_state.vector_db:
-                    # RAG Mode with LangChain
+                    # RAG MODE: Documents se answer dhundna
                     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
                     qa_chain = RetrievalQA.from_chain_type(
                         llm=llm, 
@@ -89,15 +85,15 @@ if prompt := st.chat_input("Ask anything"):
                     res = qa_chain.invoke(prompt)
                     final_text = res["result"]
                 else:
-                    # Normal Gemini Mode
+                    # GENERAL MODE: Gemini 1.5 Flash ka gyan
                     model = genai.GenerativeModel("gemini-1.5-flash")
                     res = model.generate_content(prompt)
                     final_text = res.text
                 
-                status.update(label="✅ Response Generated!", state="complete")
+                status.update(label="✅ Analysis Done!", state="complete")
             except Exception as e:
-                final_text = f"Error: {str(e)}"
-                status.update(label="❌ Error occurred", state="error")
+                final_text = f"❌ Error: {str(e)}"
+                status.update(label="Critical Error", state="error")
 
         st.markdown(final_text)
         st.session_state.messages.append({"role": "assistant", "content": final_text})
