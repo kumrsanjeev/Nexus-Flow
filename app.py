@@ -1,15 +1,14 @@
 import streamlit as st
 from groq import Groq
 import google.generativeai as genai
-from pypdf import PdfReader
-import faiss
-import numpy as np
 import urllib.parse
 import re
 import random
+import requests
+import time
 
 # --- CONFIG ---
-st.set_page_config(page_title="Nexus Flow Ultra v14", page_icon="✨", layout="wide")
+st.set_page_config(page_title="Nexus Flow Ultra v15", page_icon="✨", layout="wide")
 
 # --- API KEYS ---
 groq_key = st.secrets.get("GROQ_API_KEY")
@@ -22,40 +21,41 @@ if not groq_key or not google_key:
 client = Groq(api_key=groq_key)
 genai.configure(api_key=google_key)
 
-# --- SESSION STATE ---
+# --- SESSION ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "db" not in st.session_state:
-    st.session_state.db = None
-
-# --- IMAGE GENERATOR (ULTRA FIXED) ---
-def generate_image_url(prompt):
-    try:
-        if not prompt or len(prompt.strip()) < 5:
-            return None
-
-        prompt = prompt.strip()
-        prompt = re.sub(r'\s+', ' ', prompt)
-
-        # Force better quality
-        prompt += ", ultra realistic, 4k, highly detailed, cinematic lighting"
-
-        encoded = urllib.parse.quote_plus(prompt)
-
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&seed={random.randint(1,999999)}"
-
-        return url
-    except:
+# --- 🔥 IMAGE GENERATOR WITH VALIDATION ---
+def generate_image_url(prompt, retries=3):
+    if not prompt or len(prompt.strip()) < 5:
         return None
+
+    prompt = re.sub(r'\s+', ' ', prompt.strip())
+    prompt += ", ultra realistic, 4k, highly detailed"
+
+    for _ in range(retries):
+        try:
+            encoded = urllib.parse.quote_plus(prompt)
+            url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&seed={random.randint(1,999999)}"
+
+            # 🔥 CHECK IF IMAGE REALLY EXISTS
+            res = requests.head(url, timeout=5)
+
+            if res.status_code == 200:
+                return url
+
+        except:
+            pass
+
+        time.sleep(1)
+
+    return None
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("Nexus Hub ⚡")
-
-    if st.button("➕ New Chat"):
+    if st.button("New Chat"):
         st.session_state.messages = []
-        st.session_state.db = None
         st.rerun()
 
 # --- DISPLAY CHAT ---
@@ -81,10 +81,10 @@ if prompt := st.chat_input("Ask anything..."):
             # SYSTEM PROMPT
             sys_msg = """
             You are Nexus AI 🤖
-            - Answer in Hinglish
-            - Use emojis
+            - Hinglish me answer do
+            - Emojis use karo
             - Clean formatting
-            - If visual needed → MUST use [GENERATE_IMAGE: detailed prompt]
+            - Agar visual useful ho → [GENERATE_IMAGE: detailed prompt] zaroor use karo
             """
 
             completion = client.chat.completions.create(
@@ -102,54 +102,46 @@ if prompt := st.chat_input("Ask anything..."):
             final_text = full_response
             img_urls = []
 
-            # --- 1. AI IMAGE TAG ---
+            # --- AI TAG IMAGE ---
             matches = re.findall(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text, re.DOTALL)
 
             for m in matches:
                 url = generate_image_url(m)
-                if url and "pollinations.ai" in url:
-                    img_urls.append(url)
-
-            # Remove tags
-            final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text, flags=re.DOTALL).strip()
-
-            # --- 2. USER IMAGE INTENT ---
-            user_wants_image = any(word in prompt.lower() for word in [
-                "image", "photo", "draw", "picture", "generate", "show"
-            ])
-
-            if user_wants_image and not img_urls:
-                auto_prompt = f"{prompt}, realistic, 4k detailed"
-                url = generate_image_url(auto_prompt)
                 if url:
                     img_urls.append(url)
 
-            # --- 3. FINAL FALLBACK (ANTI-EMPTY) ---
+            final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text, flags=re.DOTALL).strip()
+
+            # --- USER IMAGE INTENT ---
+            if any(word in prompt.lower() for word in ["image", "photo", "draw", "picture"]):
+                if not img_urls:
+                    url = generate_image_url(prompt)
+                    if url:
+                        img_urls.append(url)
+
+            # --- FINAL FALLBACK ---
             if not img_urls:
-                fallback_prompt = f"{prompt}, high quality realistic image"
-                fallback_url = generate_image_url(fallback_prompt)
-                if fallback_url:
-                    img_urls.append(fallback_url)
+                fallback = generate_image_url("beautiful high quality scene")
+                if fallback:
+                    img_urls.append(fallback)
 
-            # Clean text
-            final_text = re.sub(r'\n{3,}', '\n\n', final_text)
-
+            # --- SHOW TEXT ---
             response_placeholder.markdown(final_text)
 
-            # --- DISPLAY IMAGES SAFE ---
-            valid_imgs = []
+            # --- SHOW ONLY VALID IMAGES ---
+            valid_images = []
             for url in img_urls:
                 try:
                     st.image(url, use_container_width=True)
-                    valid_imgs.append(url)
+                    valid_images.append(url)
                 except:
-                    st.warning("⚠️ Image failed to load")
+                    pass
 
             # --- SAVE ---
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": final_text,
-                "images": valid_imgs
+                "images": valid_images
             })
 
         except Exception as e:
