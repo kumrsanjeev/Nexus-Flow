@@ -1,78 +1,95 @@
 import streamlit as st
-# Must be the first line
-st.set_page_config(page_title="Nexus Flow AI", page_icon="⚡", layout="wide")
-
-from agent import initialize_agent, get_chat_response
+import google.generativeai as genai
 import urllib.parse
+import re
 
-# 1. Custom Styling
+# --- 1. PAGE CONFIG ---
+st.set_page_config(page_title="Nexus Flow Pro 🤖", layout="wide")
+
 st.markdown("""
     <style>
-    .stChatMessage { border-radius: 15px; border: 1px solid #262730; }
-    .stStatusWidget { border-radius: 10px; }
+    .stApp { background-color: #0E1117; color: #FFFFFF; }
+    .thinking-box { background-color: #1a1c23; border-left: 4px solid #00ffcc; padding: 10px; margin: 10px 0; color: #00ffcc; font-family: monospace; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Session State
+# --- 2. API SETUP ---
+def initialize_agent():
+    api_key = st.secrets.get("GOOGLE_API_KEY")
+    if not api_key:
+        st.error("⚠️ API Key missing! Check Streamlit Secrets.")
+        return None
+    
+    genai.configure(api_key=api_key)
+    
+    # Generic AI Instruction with Thinking & Image support
+    instruction = """
+    You are Nexus Flow AI. 
+    1. IMAGE: If user asks for an image, respond ONLY with: [GENERATE_IMAGE: descriptive prompt in English]
+    2. THINKING: For complex tasks (Coding/Math), use <thinking> step-by-step logic </thinking> then the final answer.
+    3. LANGUAGE: Use Hinglish.
+    """
+    
+    # Fixed model name to avoid 404 error
+    return genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instruction)
+
+# --- 3. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "chat_model" not in st.session_state:
+    st.session_state.chat_model = initialize_agent()
 
-# 3. Sidebar
-with st.sidebar:
-    st.title("Nexus Flow 🤖")
-    if st.button("🗑️ Clear Chat"):
-        st.session_state.messages = []
-        st.rerun()
-    st.divider()
-    st.caption("Owner: Sanjeev")
+# --- 4. UI DISPLAY ---
+st.title("Nexus Flow Pro 🤖")
 
-# 4. Display History
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
+        if "image" in m:
+            st.image(m["image"])
 
-# 5. User Input
+# --- 5. CHAT LOGIC ---
 if prompt := st.chat_input("Kaise help karu Sanjeev?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        with st.status("Nexus Flow is processing...", expanded=False) as status:
+    if st.session_state.chat_model:
+        with st.chat_message("assistant"):
             try:
-                model = initialize_agent()
-                history = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
+                # Chat History format for Gemini
+                history = [{"role": m["role"], "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
+                chat = st.session_state.chat_model.start_chat(history=history)
+                response = chat.send_message(prompt)
+                full_res = response.text
                 
-                full_res = get_chat_response(model, prompt, history)
-                final_ans = ""
+                final_text = full_res
+                img_url = None
 
-                # CASE 1: IMAGE GENERATION
-                if "[GENERATE_IMAGE:" in full_res:
-                    raw_p = full_res.split("[GENERATE_IMAGE:")[1].split("]")[0].strip()
-                    # Safe URL encoding for spaces
-                    clean_p = urllib.parse.quote(raw_p)
-                    img_url = f"https://image.pollinations.ai/prompt/{clean_p}?width=1024&height=1024&model=flux&nologo=true"
-                    
-                    status.update(label="🎨 Image Created!", state="complete")
-                    st.image(img_url, caption=f"Nexus Flow Generated: {raw_p}")
-                    final_ans = f"✅ Image ready: **{raw_p}**. [Direct Link]({img_url})"
-
-                # CASE 2: THINKING / EDIT MODE
-                elif "<thinking>" in full_res:
+                # Parsing Thinking Tags
+                if "<thinking>" in full_res:
                     parts = full_res.split("</thinking>")
-                    thinking_process = parts[0].replace("<thinking>", "").strip()
-                    st.info(f"🧠 Reasoning: {thinking_process}")
-                    final_ans = parts[1].strip()
-                    status.update(label="Thinking Complete!", state="complete")
+                    thought = parts[0].replace("<thinking>", "").strip()
+                    final_text = parts[1].strip()
+                    st.markdown(f'<div class="thinking-box"><b>🧠 Logic Tree:</b><br>{thought}</div>', unsafe_allow_html=True)
+
+                # Parsing Image Generation
+                if "[GENERATE_IMAGE:" in final_text:
+                    match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
+                    if match:
+                        img_prompt = match.group(1).strip()
+                        encoded_prompt = urllib.parse.quote(img_prompt)
+                        img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+                        final_text = f"🎨 **Visualizing:** {img_prompt}"
+
+                st.markdown(final_text)
+                if img_url:
+                    st.image(img_url)
                 
-                # CASE 3: NORMAL TEXT
-                else:
-                    final_ans = full_res
-                    status.update(label="Done!", state="complete")
+                # Save to history
+                msg_data = {"role": "assistant", "content": final_text}
+                if img_url: msg_data["image"] = img_url
+                st.session_state.messages.append(msg_data)
 
             except Exception as e:
-                final_ans = f"Error: {e}"
-                status.update(label="System Error!", state="error")
-
-        st.markdown(final_ans)
-        st.session_state.messages.append({"role": "assistant", "content": final_ans})
+                st.error(f"Error: {str(e)}")
