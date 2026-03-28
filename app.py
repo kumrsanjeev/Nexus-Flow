@@ -1,35 +1,17 @@
 import streamlit as st
-import google.generativeai as genai
-from openai import OpenAI
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
-import os
-import time
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+import re
 
 # ---------------- PAGE ----------------
-st.set_page_config(page_title="Nexus Flow Ultra AI 🤖", layout="wide")
+st.set_page_config(page_title="Offline AI 🤖", layout="wide")
 
-# ---------------- API KEYS ----------------
-GEMINI_KEY = st.secrets.get("GOOGLE_API_KEY")
-OPENAI_KEY = st.secrets.get("OPENAI_API_KEY")
+# ---------------- SESSION ----------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    os.environ["GOOGLE_API_KEY"] = GEMINI_KEY
-
-openai_client = None
-if OPENAI_KEY:
-    openai_client = OpenAI(api_key=OPENAI_KEY)
-
-# ---------------- MODEL LIST ----------------
-GEMINI_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-]
-
-OPENAI_MODEL = "gpt-4o-mini"
+if "chunks" not in st.session_state:
+    st.session_state.chunks = []
 
 # ---------------- PDF PROCESS ----------------
 def process_pdf(files):
@@ -39,73 +21,74 @@ def process_pdf(files):
         for page in reader.pages:
             text += page.extract_text() or ""
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     chunks = splitter.split_text(text)
 
-    embeddings = GoogleGenerativeAIEmbeddings(model="embedding-001")
-    return FAISS.from_texts(chunks, embeddings)
+    return chunks
 
-# ---------------- MULTI AI FUNCTION ----------------
-def generate_response(prompt):
-    
-    # 🔥 1. TRY GEMINI FIRST
-    if GEMINI_KEY:
-        for model_name in GEMINI_MODELS:
-            try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                return response.text, f"Gemini ({model_name})"
+# ---------------- SIMPLE SEARCH ----------------
+def search_chunks(query, chunks):
+    scores = []
 
-            except Exception as e:
-                error = str(e)
+    query_words = set(re.findall(r"\w+", query.lower()))
 
-                # quota → try next system
-                if "429" in error or "quota" in error.lower():
-                    break
+    for chunk in chunks:
+        chunk_words = set(re.findall(r"\w+", chunk.lower()))
+        score = len(query_words.intersection(chunk_words))
+        scores.append((score, chunk))
 
-                if "404" in error:
-                    continue
+    scores.sort(reverse=True, key=lambda x: x[0])
 
-    # 🔥 2. FALLBACK TO OPENAI
-    if openai_client:
-        try:
-            res = openai_client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return res.choices[0].message.content, f"OpenAI ({OPENAI_MODEL})"
+    return [chunk for score, chunk in scores[:3] if score > 0]
 
-        except Exception as e:
-            return f"❌ OpenAI Error: {str(e)}", "openai_error"
+# ---------------- OFFLINE AI ----------------
+def offline_ai(prompt, chunks):
+    prompt_lower = prompt.lower()
 
-    # 🔥 3. FINAL FAIL
-    return "❌ All AI services failed.\n\n👉 Check API keys or billing.", "none"
+    # 🔹 basic chat
+    if "hello" in prompt_lower or "hi" in prompt_lower:
+        return "Hello 👋 I'm your offline AI. Ask me anything!"
 
-# ---------------- SESSION ----------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    if "who are you" in prompt_lower:
+        return "I am a fully offline AI 🤖 running without any API."
 
-if "vector_db" not in st.session_state:
-    st.session_state.vector_db = None
+    # 🔹 RAG mode
+    if chunks:
+        results = search_chunks(prompt, chunks)
+
+        if results:
+            context = "\n\n".join(results)
+
+            return f"""
+📄 Based on your document:
+
+{context}
+
+🧠 Answer:
+This information suggests that your query is related to the above content.
+"""
+
+    # 🔹 fallback
+    return "⚠️ I couldn't find relevant info.\n\nTry uploading a PDF or ask simpler question."
 
 # ---------------- SIDEBAR ----------------
 with st.sidebar:
-    st.title("📂 Upload PDFs")
+    st.title("📂 Upload PDF")
 
-    files = st.file_uploader("Upload PDF", type="pdf", accept_multiple_files=True)
+    files = st.file_uploader("Upload", type="pdf", accept_multiple_files=True)
 
     if files and st.button("Process"):
-        with st.spinner("Processing..."):
-            st.session_state.vector_db = process_pdf(files)
-        st.success("✅ Done!")
+        with st.spinner("Reading PDF..."):
+            st.session_state.chunks = process_pdf(files)
+        st.success("✅ PDF Ready!")
 
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
 
 # ---------------- UI ----------------
-st.title("🤖 Nexus Flow Ultra AI")
-st.caption("Gemini + OpenAI Auto Switching AI")
+st.title("🤖 Offline AI (No API)")
+st.caption("ChatGPT Style + Free RAG System")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -122,29 +105,9 @@ if prompt:
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            try:
-                if st.session_state.vector_db:
-                    docs = st.session_state.vector_db.similarity_search(prompt, k=3)
-                    context = "\n\n".join([doc.page_content for doc in docs])
-
-                    final_prompt = f"""
-Use this context to answer:
-
-{context}
-
-Question: {prompt}
-"""
-                else:
-                    final_prompt = prompt
-
-                response, model_used = generate_response(final_prompt)
-
-            except Exception as e:
-                response = f"❌ Error: {str(e)}"
-                model_used = "error"
+            response = offline_ai(prompt, st.session_state.chunks)
 
         st.markdown(response)
-        st.caption(f"⚙️ Model used: {model_used}")
 
         st.session_state.messages.append({
             "role": "assistant",
