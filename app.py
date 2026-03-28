@@ -1,148 +1,85 @@
 import streamlit as st
 from groq import Groq
 import google.generativeai as genai
+from pypdf import PdfReader
+import faiss
+import numpy as np
 import urllib.parse
 import re
 import random
-import requests
-import time
 
-# --- CONFIG ---
-st.set_page_config(page_title="Nexus Flow Ultra v15", page_icon="✨", layout="wide")
+# --- 1. PREMIUM UI ---
+st.set_page_config(page_title="Nexus Flow Ultra v15", page_icon="🧠", layout="wide")
+st.markdown("""<style>
+    .stApp { background-color: #ffffff; color: #1f1f1f; }
+    .thinking-box { background-color: #f0f7ff; border-radius: 12px; padding: 15px; color: #0056b3; border-left: 5px solid #0056b3; margin: 10px 0; font-family: 'Courier New', monospace; font-size: 0.85rem; }
+    .stChatMessage { border-radius: 15px; border: 1px solid #eef2f6 !important; margin-bottom: 10px; }
+    .stChatInput { border-radius: 30px !important; }
+</style>""", unsafe_allow_html=True)
 
-# --- API KEYS ---
-groq_key = st.secrets.get("GROQ_API_KEY")
-google_key = st.secrets.get("GOOGLE_API_KEY")
+# --- 2. INITIALIZATION ---
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-if not groq_key or not google_key:
-    st.error("API Keys missing!")
-    st.stop()
+if "messages" not in st.session_state: st.session_state.messages = []
 
-client = Groq(api_key=groq_key)
-genai.configure(api_key=google_key)
-
-# --- SESSION ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# --- 🔥 IMAGE GENERATOR WITH VALIDATION ---
-def generate_image_url(prompt, retries=3):
-    if not prompt or len(prompt.strip()) < 5:
-        return None
-
-    prompt = re.sub(r'\s+', ' ', prompt.strip())
-    prompt += ", ultra realistic, 4k, highly detailed"
-
-    for _ in range(retries):
-        try:
-            encoded = urllib.parse.quote_plus(prompt)
-            url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&seed={random.randint(1,999999)}"
-
-            # 🔥 CHECK IF IMAGE REALLY EXISTS
-            res = requests.head(url, timeout=5)
-
-            if res.status_code == 200:
-                return url
-
-        except:
-            pass
-
-        time.sleep(1)
-
-    return None
-
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("Nexus Hub ⚡")
-    if st.button("New Chat"):
-        st.session_state.messages = []
-        st.rerun()
-
-# --- DISPLAY CHAT ---
+# --- 3. MAIN CHAT ENGINE ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
-        if m.get("images"):
-            for img in m["images"]:
-                st.image(img, use_container_width=True)
+        if "image" in m and m["image"]: st.image(m["image"], use_container_width=True)
 
-# --- CHAT INPUT ---
-if prompt := st.chat_input("Ask anything..."):
+if prompt := st.chat_input("Deeply analyze this..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        full_response = ""
+        res_placeholder = st.empty()
+        full_res = ""
+        
+        # --- SUPER THINKING PROMPT ---
+        sys_msg = """
+        You are Nexus Flow Ultra in 'Super Thinking' Mode. 
+        - STRATEGY: Before answering, you MUST think step-by-step. 
+        - FORMAT: Start your internal logic with <thinking> and end with </thinking>. 
+        - DEPTH: If a question is scientific or logical, break it down like a professor.
+        - IMAGES: Output ONLY [GENERATE_IMAGE: descriptive English prompt] for visuals.
+        - EMOJIS: Use emojis for a friendly Gemini vibe 🚀.
+        """
+        
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": sys_msg}] + st.session_state.messages[-6:],
+            stream=True,
+            temperature=0.4 # Logic ke liye temperature kam rakha hai (Deep Thinking)
+        )
 
-        try:
-            # SYSTEM PROMPT
-            sys_msg = """
-            You are Nexus AI 🤖
-            - Hinglish me answer do
-            - Emojis use karo
-            - Clean formatting
-            - Agar visual useful ho → [GENERATE_IMAGE: detailed prompt] zaroor use karo
-            """
+        for chunk in completion:
+            if chunk.choices[0].delta.content:
+                full_res += chunk.choices[0].delta.content
+                res_placeholder.markdown(full_res + "▌")
+        
+        # --- PARSING LOGIC ---
+        final_ans = full_res
+        img_url = None
 
-            completion = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "system", "content": sys_msg}] +
-                         [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-10:]],
-                stream=True
-            )
+        # 1. Thinking Box Display
+        if "<thinking>" in full_res:
+            parts = full_res.split("</thinking>")
+            thought = parts[0].replace("<thinking>","").strip()
+            st.markdown(f'<div class="thinking-box"><b>🧠 Super Thinking:</b><br>{thought}</div>', unsafe_allow_html=True)
+            final_ans = parts[-1].strip()
 
-            for chunk in completion:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    response_placeholder.markdown(full_response + "▌")
+        # 2. Image Direct Show Fix
+        if "[GENERATE_IMAGE:" in full_res:
+            match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_res)
+            if match:
+                img_prompt = match.group(1).strip()
+                encoded = urllib.parse.quote(img_prompt)
+                img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={random.randint(0, 9999)}"
+                final_ans = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_ans).strip()
 
-            final_text = full_response
-            img_urls = []
-
-            # --- AI TAG IMAGE ---
-            matches = re.findall(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text, re.DOTALL)
-
-            for m in matches:
-                url = generate_image_url(m)
-                if url:
-                    img_urls.append(url)
-
-            final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text, flags=re.DOTALL).strip()
-
-            # --- USER IMAGE INTENT ---
-            if any(word in prompt.lower() for word in ["image", "photo", "draw", "picture"]):
-                if not img_urls:
-                    url = generate_image_url(prompt)
-                    if url:
-                        img_urls.append(url)
-
-            # --- FINAL FALLBACK ---
-            if not img_urls:
-                fallback = generate_image_url("beautiful high quality scene")
-                if fallback:
-                    img_urls.append(fallback)
-
-            # --- SHOW TEXT ---
-            response_placeholder.markdown(final_text)
-
-            # --- SHOW ONLY VALID IMAGES ---
-            valid_images = []
-            for url in img_urls:
-                try:
-                    st.image(url, use_container_width=True)
-                    valid_images.append(url)
-                except:
-                    pass
-
-            # --- SAVE ---
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": final_text,
-                "images": valid_images
-            })
-
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
+        res_placeholder.markdown(final_ans)
+        if img_url: st.image(img_url, use_container_width=True)
+        st.session_state.messages.append({"role": "assistant", "content": final_ans, "image": img_url})
+        
