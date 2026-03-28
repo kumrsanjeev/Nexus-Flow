@@ -57,19 +57,7 @@ genai.configure(api_key=google_key)
 if "messages" not in st.session_state: st.session_state.messages = []
 if "db" not in st.session_state: st.session_state.db = None
 
-# --- 3. PDF ENGINE ---
-def process_pdfs(files):
-    text = ""
-    for f in files:
-        reader = PdfReader(f)
-        for page in reader.pages: text += page.extract_text() or ""
-    chunks = [text[i:i+1000] for i in range(0, len(text), 800)]
-    embeddings = [genai.embed_content(model="models/embedding-001", content=c, task_type="retrieval_document")['embedding'] for c in chunks]
-    index = faiss.IndexFlatL2(len(embeddings[0]))
-    index.add(np.array(embeddings).astype('float32'))
-    return index, chunks
-
-# --- 4. SIDEBAR ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.markdown("<h3 style='color:#1a73e8;'>Nexus Menu</h3>", unsafe_allow_html=True)
     if st.button("➕ New Chat"):
@@ -77,34 +65,41 @@ with st.sidebar:
         st.session_state.db = None
         st.rerun()
     st.markdown("---")
-    uploaded = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+    uploaded = st.file_uploader("Upload Study PDFs", type="pdf", accept_multiple_files=True)
     if uploaded and st.button("Sync Brain"):
-        st.session_state.db, st.session_state.chunks = process_pdfs(uploaded)
+        text = ""
+        for f in uploaded:
+            reader = PdfReader(f)
+            for page in reader.pages: text += page.extract_text() or ""
+        chunks = [text[i:i+1000] for i in range(0, len(text), 800)]
+        embeddings = [genai.embed_content(model="models/embedding-001", content=c, task_type="retrieval_document")['embedding'] for c in chunks]
+        index = faiss.IndexFlatL2(len(embeddings[0]))
+        index.add(np.array(embeddings).astype('float32'))
+        st.session_state.db, st.session_state.chunks = index, chunks
         st.success("Synced! ✅")
 
-# --- 5. HOME PAGE ---
+# --- 4. HOME PAGE ---
 if not st.session_state.messages:
     st.markdown("<div class='gemini-greeting'>Hi Sanjeev</div>", unsafe_allow_html=True)
     st.markdown("<div class='gemini-subtitle'>Where should we start?</div>", unsafe_allow_html=True)
     
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("🖼️ Create Image"):
-            st.session_state.messages.append({"role":"user", "content":"Ek sundar scenery ki photo banao 🌄"})
+        if st.button("🖼️ Create an image of an AI"):
+            st.session_state.messages.append({"role":"user", "content":"Create a high-quality image of a futuristic AI robot 🤖"})
             st.rerun()
     with col2:
-        if st.button("📝 Write Anything"):
-            st.session_state.messages.append({"role":"user", "content":"Mujhe SAT math ka tough logic question solve karwao 📝"})
+        if st.button("📝 SAT Logic Challenge"):
+            st.session_state.messages.append({"role":"user", "content":"Ask me a tough SAT math logic question 📝"})
             st.rerun()
 else:
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
-            # FIXED LINE HERE: Bracket closed properly
             if "image" in m and m["image"]:
                 st.image(m["image"], use_container_width=True)
 
-# --- 6. CHAT LOGIC ---
+# --- 5. CHAT LOGIC ---
 if prompt := st.chat_input("Ask Gemini"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
@@ -117,7 +112,13 @@ if prompt := st.chat_input("Ask Gemini"):
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
-            sys_msg = f"You are Nexus Flow Ultra. Reply in the same language as user. Use Hinglish. Use <thinking> for logic. Use [GENERATE_IMAGE: prompt] for photos. Context: {context}"
+            sys_msg = f"""You are Nexus Flow Ultra (Gemini Clone). 
+            - IDENTITY: You are Sanjeev's AI partner. 
+            - LANGUAGE: Always reply in the user's language (Hindi/Hinglish/English).
+            - IMAGE: ONLY use [GENERATE_IMAGE: descriptive prompt in English] if the user EXPLICITLY asks to 'create', 'generate', or 'draw' an image. Do NOT use it for normal questions like 'Who is PM'.
+            - PM of INDIA: If asked, say Narendra Modi directly.
+            - LOGIC: Use <thinking> for reasoning.
+            Context: {context}"""
             
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -127,23 +128,22 @@ if prompt := st.chat_input("Ask Gemini"):
             raw_res = response.choices[0].message.content
             final_text, img_url = raw_res, None
 
-            # Safe Parser
+            # Robust Safe Parser
             if "<thinking>" in raw_res and "</thinking>" in raw_res:
                 parts = raw_res.split("</thinking>")
                 thought = parts[0].replace("<thinking>","").strip()
-                st.markdown(f'<div class="thinking-box">🔍 <b>Reasoning:</b><br>{thought}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="thinking-box">🔍 <b>Thinking Process:</b><br>{thought}</div>', unsafe_allow_html=True)
                 final_text = parts[1].strip()
             else:
-                final_text = raw_res.replace("<thinking>","").replace("</thinking>","")
+                final_text = raw_res.replace("<thinking>","").replace("</thinking>","").strip()
 
-            # Image logic
+            # Image Detection Fix
             if "[GENERATE_IMAGE:" in final_text:
                 match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
                 if match:
                     p_str = match.group(1).strip()
-                    # Added unique seed to fix broken images
                     img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(p_str)}?width=1024&height=1024&nologo=true&seed={np.random.randint(10000)}"
-                    final_text = f"🎨 **Creating Image:** {p_str}"
+                    final_text = f"🎨 **Image Generated for:** {p_str}"
 
             st.markdown(final_text)
             if img_url: 
@@ -153,4 +153,4 @@ if prompt := st.chat_input("Ask Gemini"):
 
         except Exception as e:
             st.error(f"Error: {e}")
-        
+            
