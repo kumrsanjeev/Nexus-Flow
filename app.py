@@ -7,23 +7,22 @@ import numpy as np
 import urllib.parse
 import re
 import random
-import time
 
-# --- 1. PREMIUM GEMINI LIGHT THEME ---
-st.set_page_config(page_title="Nexus Flow Ultra v13", page_icon="✨", layout="wide")
+# --- 1. PREMIUM GEMINI INTERFACE ---
+st.set_page_config(page_title="Nexus Flow Ultra v14", page_icon="✨", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #1f1f1f; }
     [data-testid="stSidebar"] { background-color: #f0f4f9 !important; border-right: none; }
-    .stChatMessage { border-radius: 12px; padding: 1.5rem !important; margin-bottom: 1rem; border: 1px solid #f0f2f6 !important; }
+    .stChatMessage { border-radius: 12px; padding: 1.2rem !important; margin-bottom: 1rem; border: 1px solid #f0f2f6 !important; }
     .stChatInputContainer { padding-bottom: 2rem; }
     .stChatInput { border-radius: 26px !important; border: 1px solid #e5e7eb !important; background-color: #f0f4f9 !important; }
     .thinking-box { background-color: #f1f3f4; border-radius: 12px; padding: 15px; color: #1a73e8; border-left: 5px solid #1a73e8; margin-bottom: 10px; font-size: 0.9rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INITIALIZATION ---
+# --- 2. KEYS & INITIALIZATION ---
 groq_key = st.secrets.get("GROQ_API_KEY")
 google_key = st.secrets.get("GOOGLE_API_KEY")
 
@@ -45,7 +44,7 @@ with st.sidebar:
         st.session_state.db = None
         st.rerun()
     st.markdown("---")
-    uploaded = st.file_uploader("Upload PDFs for Deep Analysis", type="pdf", accept_multiple_files=True)
+    uploaded = st.file_uploader("Upload PDFs for Analysis", type="pdf", accept_multiple_files=True)
     if uploaded and st.button("🚀 Sync Knowledge"):
         text = ""
         for f in uploaded:
@@ -59,18 +58,14 @@ with st.sidebar:
         st.success("Brain Synced! ✅")
 
 # --- 4. MAIN INTERFACE ---
-if not st.session_state.messages:
-    st.markdown("<div class='nexus-title'>Nexus Flow Ultra 🧠</div>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#5f6368;'>Powered by LLaMA 3.3 for Deep Reasoning</p>", unsafe_allow_html=True)
-else:
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
-            if "image" in m and m["image"]:
-                st.image(m["image"], use_container_width=True)
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+        if "image" in m and m["image"]:
+            st.image(m["image"], use_container_width=True)
 
-# --- 5. CHAT LOGIC WITH STREAMING ---
-if prompt := st.chat_input("Message Nexus..."):
+# --- 5. CHAT LOGIC ---
+if prompt := st.chat_input("Ask anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
@@ -79,19 +74,18 @@ if prompt := st.chat_input("Message Nexus..."):
         full_response = ""
         
         try:
-            # Context search
             context = ""
             if st.session_state.db:
                 q_emb = genai.embed_content(model="models/embedding-001", content=prompt, task_type="retrieval_query")['embedding']
                 D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
                 context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
 
-            # MANDATORY LANGUAGE & IMAGE RULES
+            # --- STRICT SYSTEM PROMPT ---
             sys_msg = f"""
-            You are Nexus Flow Ultra. Use Hinglish naturally.
-            - FORMATTING: Answer like ChatGPT. Use bold headings, bullet points, and clean paragraphs.
-            - EMOJIS: Always use suitable emojis. 🚀✨
-            - IMAGES: Use [GENERATE_IMAGE: highly descriptive English prompt] for visuals. Never say "I can't generate images".
+            You are Nexus Flow Ultra. 
+            - IMAGE RULE: When asked for an image, do NOT say "I am a text model". ONLY output the tag: [GENERATE_IMAGE: descriptive English prompt].
+            - LANGUAGE: Match user's language (Hindi/Hinglish/English).
+            - EMOJIS: Use emojis 🚀.
             Context: {context}
             """
             
@@ -106,25 +100,27 @@ if prompt := st.chat_input("Message Nexus..."):
                     full_response += chunk.choices[0].delta.content
                     response_placeholder.markdown(full_response + "▌")
             
-            # --- PARSING & FIXING ---
+            # --- IMAGE EXTRACTOR LOGIC ---
             final_text = full_response
             img_url = None
 
-            if "<thinking>" in full_response:
-                parts = full_response.split("</thinking>")
-                st.markdown(f'<div class="thinking-box">🔍 <b>Nexus Reasoning:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
-                final_text = parts[1].strip()
+            # 1. Clean thinking tags if present
+            if "<thinking>" in final_text:
+                parts = final_text.split("</thinking>")
+                final_text = parts[-1].strip()
 
-            # --- UNIVERSAL IMAGE FIX (Ensuring proper image display) ---
-            if "[GENERATE_IMAGE:" in final_text:
-                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
+            # 2. Extract Image Prompt and Fix Display
+            if "[GENERATE_IMAGE:" in full_response:
+                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_response)
                 if match:
                     img_prompt = match.group(1).strip()
-                    # Fix: Encoding URL properly and adding random seed
-                    encoded_prompt = urllib.parse.quote(img_prompt)
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
-                    # Hide the tag from user
+                    encoded = urllib.parse.quote(img_prompt)
+                    # Correct URL logic
+                    img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={random.randint(0, 99999)}"
+                    # Remove the tag from text so it looks clean like Gemini
                     final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
+                    if not final_text: # If only image was requested
+                        final_text = f"🎨 **Image Generated for:** {img_prompt}"
 
             response_placeholder.markdown(final_text)
             if img_url: 
