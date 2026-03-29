@@ -1,208 +1,96 @@
 import streamlit as st
-from groq import Groq
 import google.generativeai as genai
+from groq import Groq
 import requests
 import io
 from PIL import Image
 import re
-import random
 import time
 
-# --- 1. PREMIUM GEMINI INTERFACE THEME ---
-st.set_page_config(page_title="Nexus Flow Ultra v31", page_icon="🤖", layout="wide")
+# --- 1. PREMIUM UI THEME ---
+st.set_page_config(page_title="Nexus Flow Ultra v32", page_icon="🤖", layout="wide")
 
 st.markdown("""
     <style>
-    /* Gemini White Theme */
     .stApp { background-color: #ffffff; color: #1f1f1f; }
-    
-    /* Sidebar Styling */
-    [data-testid="stSidebar"] { background-color: #f0f4f9 !important; border-right: none; }
-
-    /* Gemini style message bubbles */
-    .stChatMessage { background-color: transparent !important; border: none !important; padding: 10px 0 !important; }
-    
-    /* Suggested Buttons (Pills) */
-    .stButton>button {
-        background-color: #ffffff !important;
-        color: #444746 !important;
-        border: 1px solid #c4c7c5 !important;
-        border-radius: 25px !important;
-        padding: 10px 20px !important;
-        font-weight: 500 !important;
-        text-align: left !important;
-        display: block;
-        margin-bottom: 10px;
-        transition: 0.3s;
-        width: 100%;
-    }
-    .stButton>button:hover { background-color: #f1f3f4 !important; border-color: #1a73e8 !important; }
-
-    /* Thinking box (Logic) */
-    .thinking-box {
-        background-color: #f0f7ff;
-        border-radius: 12px;
-        padding: 15px;
-        color: #0056b3;
-        font-size: 0.9rem;
-        border-left: 5px solid #0056b3;
-        margin: 10px 0;
-    }
-
-    /* Chat Input Styling */
-    .stChatInputContainer { padding-bottom: 30px; }
+    [data-testid="stSidebar"] { background-color: #f0f4f9 !important; }
+    .stChatMessage { border-radius: 12px; padding: 1rem !important; }
     .stChatInput { border-radius: 30px !important; background-color: #f0f4f9 !important; border: none !important; }
+    .gemini-greeting { font-size: 3rem; font-weight: 500; color: #1f1f1f; margin-top: 60px; text-align: center; }
+    .gemini-subtitle { font-size: 2.8rem; font-weight: 500; color: #c4c7c5; margin-bottom: 40px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INITIALIZATION ( Groq & Gemini) ---
-groq_key = st.secrets.get("GROQ_API_KEY")
-google_key = st.secrets.get("GOOGLE_API_KEY")
-
-if not groq_key or not google_key:
-    st.error("Missing API Keys (Groq or Google) in Streamlit Secrets!")
+# --- 2. INITIALIZATION ---
+try:
+    GOOGLE_KEY = st.secrets["GOOGLE_API_KEY"]
+    HF_TOKEN = st.secrets["HF_TOKEN"]
+    GROQ_KEY = st.secrets["GROQ_API_KEY"]
+except:
+    st.error("🚨 Secrets missing! Check GOOGLE_API_KEY, HF_TOKEN, and GROQ_API_KEY.")
     st.stop()
 
-# Groq Client (for Chat LLaMA 3.3)
-groq_client = Groq(api_key=groq_key)
+# Models
+genai.configure(api_key=GOOGLE_KEY)
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+groq_client = Groq(api_key=GROQ_KEY)
 
-# Gemini Client (for Image Generation & RAG)
-genai.configure(api_key=google_key)
+# Hugging Face Config (Stability AI)
+HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-# Initializing Session States
 if "messages" not in st.session_state: st.session_state.messages = []
-if "db" not in st.session_state: st.session_state.db = None
 
-# --- 3. SIDEBAR ---
-with st.sidebar:
-    st.markdown("<h3 style='color:#1a73e8; text-align:center;'>Nexus Hub ⚡</h3>", unsafe_allow_html=True)
-    if st.button("➕ New Chat"):
-        st.session_state.messages = []
-        st.session_state.db = None
-        st.rerun()
-    st.markdown("---")
-    uploaded = st.file_uploader("Upload Knowledge (PDF)", type="pdf", accept_multiple_files=True)
-    if uploaded and st.button("🚀 Sync Brain"):
-        text = ""
-        for f in uploaded:
-            reader = PdfReader(f)
-            for page in reader.pages: text += page.extract_text() or ""
-        chunks = [text[i:i+1000] for i in range(0, len(text), 800)]
-        embeddings = [genai.embed_content(model="models/embedding-001", content=c, task_type="retrieval_document")['embedding'] for c in chunks]
-        index = faiss.IndexFlatL2(len(embeddings[0]))
-        index.add(np.array(embeddings).astype('float32'))
-        st.session_state.db, st.session_state.chunks = index, chunks
-        st.success("Docs Synced! ✅")
-
-# --- 4. HUGGING FACE IMAGE FUNCTION (Stable SDXL Engine) ---
-# NOTE: We use Hugging Face for actual photo generation, 
-# but Gemini Flash determines WHEN and HOW to use it.
-def generate_stable_image(prompt):
-    """Generates a stable unique image from Hugging Face."""
-    hf_token = st.secrets.get("HF_TOKEN") # Needs HF_TOKEN in secrets for stability
-    if not hf_token: return None
-    
-    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
-    headers = {"Authorization": f"Bearer {hf_token}"}
+# --- 3. HUGGING FACE IMAGE FUNCTION ---
+def generate_hf_image(prompt):
     payload = {"inputs": prompt, "options": {"wait_for_model": True}}
-    
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
             return Image.open(io.BytesIO(response.content))
         return None
     except:
         return None
 
-# --- 5. CHAT DISPLAY ---
+# --- 4. DISPLAY ---
 if not st.session_state.messages:
-    # Minimalist Home Greeting
-    st.markdown("<h1 style='color:#1f1f1f; font-weight:500; font-size:3rem; margin-top:80px; text-align:center;'>Hello Sanjeev</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#c4c7c5; font-size:2.8rem; font-weight:500; margin-bottom:50px; text-align:center;'>How can I help you?</p>", unsafe_allow_html=True)
+    st.markdown("<div class='gemini-greeting'>Hello Sanjeev</div>", unsafe_allow_html=True)
+    st.markdown("<div class='gemini-subtitle'>Nexus is now powered by Hugging Face & Gemini</div>", unsafe_allow_html=True)
 else:
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
             if "image" in m and m["image"]:
-                st.image(m["image"], use_container_width=True, caption="Generated by Nexus Visual Engine")
+                st.image(m["image"], use_container_width=True)
 
-# --- 6. CORE LOGIC (Dual Engine: LLaMA Chat + Gemini Visuals) ---
+# --- 5. CORE LOGIC ---
 if prompt := st.chat_input("Message Nexus..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        full_response = ""
+        res_placeholder = st.empty()
         
-        try:
-            # 🧠 TASK 1: Brain (Groq/LLaMA 3.3 for Hinglish Chat)
-            context = ""
-            if st.session_state.db:
-                q_emb = genai.embed_content(model="models/embedding-001", content=prompt, task_type="retrieval_query")['embedding']
-                D, I = st.session_state.db.search(np.array([q_emb]).astype('float32'), k=3)
-                context = "\n".join([st.session_state.chunks[idx] for idx in I[0]])
+        # ChatGPT-like logic and thinking using Gemini
+        sys_prompt = "You are Nexus AI. Use Hinglish. Answer professionally like ChatGPT. For images, use ONLY [GENERATE_IMAGE: descriptive prompt]."
+        chat_response = gemini_model.generate_content(f"{sys_prompt}\nUser: {prompt}")
+        full_res = chat_response.text
+        
+        final_text = full_res
+        image_obj = None
 
-            sys_msg = f"""You are Nexus Flow Ultra (Gemini Mode). 
-            - Persona: Professional, knowledgeable. Mirror user's Hinglish naturally. Use emojis ✨.
-            - Visuals: Use only `[GENERATE_IMAGE: descriptive prompt]` if asked for an image.
-            - Logic: Use <thinking> step-by-step logic </thinking> for deep answers.
-            Context: {context}"""
-            
-            completion = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "system", "content": sys_msg}] + st.session_state.messages[-8:],
-                stream=True,
-                temperature=0.6
-            )
+        # Image parsing
+        if "[GENERATE_IMAGE:" in final_text:
+            match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
+            if match:
+                img_prompt = match.group(1).strip()
+                with st.spinner("🎨 Hugging Face is drawing..."):
+                    image_obj = generate_hf_image(img_prompt)
+                final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
 
-            for chunk in completion:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    response_placeholder.markdown(full_response + "▌")
-            
-            # --- 🚀 TASK 2: Visual Engine (Gemini Flash determines images) ---
-            final_text = full_response
-            image_obj = None
-
-            # 🔍 Super Logic (Thinking Box)
-            if "<thinking>" in full_response:
-                parts = full_response.split("</thinking>")
-                st.markdown(f'<div class="thinking-box">🔍 <b>Thinking:</b><br>{parts[0].replace("<thinking>","").strip()}</div>', unsafe_allow_html=True)
-                final_text = parts[-1].strip()
-
-            # 📸 Direct Image Generator (Gemini Flash integration)
-            if "[GENERATE_IMAGE:" in final_text:
-                match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', final_text)
-                if match:
-                    img_prompt = match.group(1).strip()
-                    
-                    # Instead of direct Pollinations link, we call Gemini Flash 
-                    # to generate a much better descriptive English prompt.
-                    with st.spinner("⏳ Gemini Flash is detailing your request..."):
-                        # Gemini Flash is best at enhancing prompts for better image generators.
-                        g_model = genai.GenerativeModel("gemini-1.5-flash")
-                        enhanced_p_response = g_model.generate_content(
-                            f"Enhance this image prompt for a high-quality realistic photo generator: {img_prompt}. Provide only the enhanced English prompt as text."
-                        )
-                        final_prompt = enhanced_p_response.text.strip()
-                        
-                    with st.spinner(f"🎨 Visualizing: {img_prompt}..."):
-                        # Generate the actual image using a stable Hugging Face model
-                        image_obj = generate_stable_image(final_prompt)
-                    
-                    # Remove the ugly blank tag from the chat response
-                    final_text = re.sub(r'\[GENERATE_IMAGE:.*?\]', '', final_text).strip()
-                    if not final_text: final_text = f"🎨 Generated your image: {img_prompt}"
-
-            response_placeholder.markdown(final_text)
-            
-            # If image generated, show it direct like Gemini
-            if image_obj: 
-                st.image(image_obj, use_container_width=True)
-            
-            st.session_state.messages.append({"role": "assistant", "content": final_text, "image": image_obj})
-
-        except Exception as e:
-            st.error(f"Sync Error: {e} ❌")
-                
+        res_placeholder.markdown(final_text)
+        if image_obj:
+            st.image(image_obj, use_container_width=True)
+        
+        st.session_state.messages.append({"role": "assistant", "content": final_text, "image": image_obj})
+        
